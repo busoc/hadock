@@ -94,6 +94,10 @@ func (f *file) AsImage(t string) (io.Reader, error) {
 		i = img.ImageI420(int(x), int(y), f.buf.Bytes())
 	case bytes.Equal(fcc, panda.JPEG) || bytes.Equal(fcc, panda.RGB):
 		i = img.ImageRGB(int(x), int(y), f.buf.Bytes())
+	case bytes.Equal(fcc, panda.JPEG) || bytes.Equal(fcc, panda.Y16B):
+		i = img.ImageGray16(int(x), int(y), f.buf.Bytes(), binary.BigEndian)
+	case bytes.Equal(fcc, panda.JPEG) || bytes.Equal(fcc, panda.Y16L):
+		i = img.ImageGray16(int(x), int(y), f.buf.Bytes(), binary.LittleEndian)
 	}
 	if err != nil {
 		return nil, err
