@@ -17,7 +17,7 @@ type Acquirer interface {
 	Acquire() (time.Time, time.Time)
 }
 
-type channels []mud.Channel
+type channels []panda.Channel
 
 func (cs *channels) String() string {
 	return fmt.Sprint(*cs)
@@ -25,14 +25,14 @@ func (cs *channels) String() string {
 
 func (cs *channels) Set(vs string) error {
 	for _, n := range strings.Split(vs, ",") {
-		var c mud.Channel
+		var c panda.Channel
 		switch n {
 		case "vic1":
-			c = mud.Video1
+			c = panda.Video1
 		case "vic2":
-			c = mud.Video2
+			c = panda.Video2
 		case "lrsd":
-			c = mud.Science
+			c = panda.Science
 		default:
 			return fmt.Errorf("unknown channel %q", n)
 		}
@@ -73,45 +73,46 @@ func main() {
 	)
 	flag.Var(&cs, "c", "channels")
 	flag.Var(&src, "s", "source")
-	flag.IntVar(&vmu, "u", mud.VMUProtocol2, "vmu version")
+	flag.IntVar(&vmu, "u", panda.VMUProtocol2, "vmu version")
 	flag.Parse()
 
-	queue, err := Packets(flag.Arg(0), string(src), vmu, []mud.Channel(cs))
+	queue, err := Packets(flag.Arg(0), string(src), vmu, []panda.Channel(cs))
 	if err != nil {
 		log.Fatalln(err)
 	}
 	for p := range queue {
-		var v *mud.VMUHeader
+		var v *panda.VMUHeader
 
 		acquisition, auxiliary, upi := "-", "-", "-"
 		switch p := p.(type) {
-		case *mud.Table:
+		case *panda.Table:
 			v = p.VMUHeader
 			if a, ok := p.SDH.(Acquirer); ok {
 				x, s := a.Acquire()
 				auxiliary, acquisition = x.Format(pattern), s.Format(pattern)
 			}
-		case *mud.Image:
+		case *panda.Image:
 			v = p.VMUHeader
 			if a, ok := p.IDH.(Acquirer); ok {
 				x, s := a.Acquire()
 				auxiliary, acquisition = x.Format(pattern), s.Format(pattern)
 			}
 			switch v := p.IDH.(type) {
-			case *mud.IDHv1:
+			case *panda.IDHv1:
 				upi = string(bytes.Trim(v.Info[:], "\x00"))
-			case *mud.IDHv2:
+			case *panda.IDHv2:
 				upi = string(bytes.Trim(v.Info[:], "\x00"))
 			}
 		default:
 			continue
 		}
 
-		log.Printf("%3d | %s | %4s | %6t | %6d | %s | %7d | %-36s | %-6s | %s | %s | %s",
+		log.Printf("%3d | %s | %4s | %6t | %6d | %6d | %s | %7d | %-48s | %-6s | %s | %s | %s",
 			p.Version(),
 			v.Timestamp().Format(pattern),
 			v.Stream(),
 			p.IsRealtime(),
+			v.Sequence,
 			p.Sequence(),
 			p.Origin(),
 			len(p.Payload()),
@@ -124,18 +125,18 @@ func main() {
 	}
 }
 
-func Packets(a, s string, v int, cs []mud.Channel) (<-chan mud.HRPacket, error) {
-	d, err := mud.DecodeHR(v)
+func Packets(a, s string, v int, cs []panda.Channel) (<-chan panda.HRPacket, error) {
+	d, err := panda.DecodeHR(v)
 	if err != nil {
 		return nil, err
 	}
-	w, err := mud.Walk("hr", a)
+	w, err := panda.Walk("hr", a)
 	if err != nil {
 		return nil, err
 	}
-	q := make(chan mud.HRPacket)
+	q := make(chan panda.HRPacket)
 	go func() {
-		r := mud.NewReader(w, d)
+		r := panda.NewReader(w, d)
 		defer func() {
 			close(q)
 			r.Close()
@@ -143,13 +144,13 @@ func Packets(a, s string, v int, cs []mud.Channel) (<-chan mud.HRPacket, error) 
 		for {
 			p, err := r.Read()
 			switch err {
-			case mud.ErrDone:
+			case panda.ErrDone:
 				return
 			case nil:
 			default:
 				log.Fatalln(err)
 			}
-			v, ok := p.(mud.HRPacket)
+			v, ok := p.(panda.HRPacket)
 			if !ok {
 				continue
 			}

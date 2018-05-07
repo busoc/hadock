@@ -309,7 +309,7 @@ func joinPath(base string, v panda.HRPacket, i uint8, g int, a bool) (string, er
 		t = v.Timestamp()
 	}
 
-	return joinPathTime(base, t, g), nil
+	return joinPathTime(base, t, g, a), nil
 }
 
 func joinPathHRDP(base string, t time.Time, i uint8) (string, error) {
@@ -323,11 +323,13 @@ func joinPathHRDP(base string, t time.Time, i uint8) (string, error) {
 	default:
 		base = path.Join(base, "DATA")
 	}
-	return joinPathTime(base, t, 0), nil
+	return joinPathTime(base, t, 0, false), nil
 }
 
-func joinPathTime(base string, t time.Time, g int) string {
-	t = panda.AdjustGenerationTime(t.Unix())
+func joinPathTime(base string, t time.Time, g int, a bool) string {
+	if !a {
+		t = panda.AdjustGenerationTime(t.Unix())
+	}
 	y := fmt.Sprintf("%04d", t.Year())
 	d := fmt.Sprintf("%03d", t.YearDay())
 	h := fmt.Sprintf("%02d", t.Hour())
