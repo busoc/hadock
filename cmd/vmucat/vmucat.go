@@ -83,20 +83,15 @@ func main() {
 	for p := range queue {
 		var v *panda.VMUHeader
 
-		acquisition, auxiliary, upi := "-", "-", "-"
+		upi := "-"
 		switch p := p.(type) {
 		case *panda.Table:
 			v = p.VMUHeader
-			if a, ok := p.SDH.(Acquirer); ok {
-				x, s := a.Acquire()
-				auxiliary, acquisition = x.Format(pattern), s.Format(pattern)
+			if v, ok := p.SDH.(*panda.SDHv2); ok {
+				upi = string(bytes.Trim(v.Info[:], "\x00"))
 			}
 		case *panda.Image:
 			v = p.VMUHeader
-			if a, ok := p.IDH.(Acquirer); ok {
-				x, s := a.Acquire()
-				auxiliary, acquisition = x.Format(pattern), s.Format(pattern)
-			}
 			switch v := p.IDH.(type) {
 			case *panda.IDHv1:
 				upi = string(bytes.Trim(v.Info[:], "\x00"))
@@ -106,21 +101,24 @@ func main() {
 		default:
 			continue
 		}
+		valid := "-"
+		if !panda.Valid(p) {
+			valid = "corrupted"
+		}
 
-		log.Printf("%3d | %s | %4s | %6t | %6d | %6d | %s | %7d | %-48s | %-6s | %s | %s | %s",
-			p.Version(),
+		log.Printf("%s | %s | %4s | %6t | %6d | %6d | %7d | %-56s | %-6s | %s | %16s | %s",
+			p.Origin(),
 			v.Timestamp().Format(pattern),
 			v.Stream(),
 			p.IsRealtime(),
 			v.Sequence,
 			p.Sequence(),
-			p.Origin(),
 			len(p.Payload()),
 			p.Filename(),
 			p.Format(),
-			auxiliary,
-			acquisition,
+			p.Timestamp().Format(time.RFC3339),
 			upi,
+			valid,
 		)
 	}
 }

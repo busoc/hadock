@@ -156,13 +156,20 @@ func Convert(ps <-chan *hadock.Packet) <-chan *hadock.Item {
 			if err != nil {
 				log.Println(err)
 			}
-			switch v.(type) {
-			case *panda.Table, *panda.Image:
-				hr := v.(panda.HRPacket)
-				q <- &hadock.Item{int32(p.Instance), hr}
+			var (
+				hr panda.HRPacket
+				hdh panda.VMUHeader
+			)
+			switch p := v.(type) {
+			case *panda.Table:
+				hr, hdh = v.(panda.HRPacket), *p.VMUHeader
+			case *panda.Image:
+				hr, hdh = v.(panda.HRPacket), *p.VMUHeader
 			default:
 				continue
 			}
+			q <- &hadock.Item{int32(p.Instance), hr}
+			log.Printf("[%T:%s:%d], %d, %d, %d, %+v", v, hr.Origin(), hr.Sequence(), p.Instance, p.Sequence, p.Length, hdh)
 		}
 	}()
 	return q
