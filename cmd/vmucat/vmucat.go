@@ -44,16 +44,16 @@ func (cs *channels) Set(vs string) error {
 	return nil
 }
 
-type source string
+type mode string
 
-func (s *source) String() string {
-	return string(*s)
+func (m *mode) String() string {
+	return string(*m)
 }
 
-func (s *source) Set(v string) error {
+func (m *mode) Set(v string) error {
 	switch v {
 	case "realtime", "playback", "", "*":
-		*s = source(v)
+		*m = mode(v)
 	default:
 		return fmt.Errorf("unknown source %q", v)
 	}
@@ -62,24 +62,39 @@ func (s *source) Set(v string) error {
 
 const pattern = "2006-01-02T15:04:05.000Z"
 
-func main() {
+type Coze struct {
+	Count, Size uint64
+}
+
+type Counter struct {
+	UPI     string
+	Sources map[string]*Coze
+}
+
+func init() {
 	log.SetFlags(0)
 	log.SetOutput(os.Stdout)
+}
 
+func main() {
 	var (
 		cs  channels
-		src source
-		vmu int
+		mod mode
 	)
 	flag.Var(&cs, "c", "channels")
-	flag.Var(&src, "s", "source")
-	flag.IntVar(&vmu, "u", panda.VMUProtocol2, "vmu version")
+	flag.Var(&mod, "m", "mode")
+	list := flag.Bool("l", false, "list")
+	info := flag.String("i", "", "upi")
+	src := flag.String("s", "", "source")
+	vmu := flag.Int("p", panda.VMUProtocol2, "vmu version")
 	flag.Parse()
 
-	queue, err := Packets(flag.Arg(0), string(src), vmu, []panda.Channel(cs))
+	queue, err := Packets(flag.Arg(0), string(mod), *src, *vmu, []panda.Channel(cs))
 	if err != nil {
 		log.Fatalln(err)
 	}
+	var count, size uint64
+	counter := make(map[string]*Counter)
 	for p := range queue {
 		var v *panda.VMUHeader
 
@@ -101,29 +116,57 @@ func main() {
 		default:
 			continue
 		}
+		if len(*info) > 0 && upi != *info {
+			continue
+		}
 		valid := "-"
 		if !panda.Valid(p) {
 			valid = "corrupted"
 		}
+		c, ok := counter[upi]
+		if !ok {
+			c = &Counter{UPI: upi, Sources: make(map[string]*Coze)}
+		}
+		if z, ok := c.Sources[p.Origin()]; !ok {
+			z = &Coze{Count: 1, Size: uint64(len(p.Payload()))}
+			c.Sources[p.Origin()] = z
+		} else {
+			c.Sources[p.Origin()].Size += uint64(len(p.Payload()))
+			c.Sources[p.Origin()].Count++
+		}
+		counter[upi] = c
 
-		log.Printf("%s | %s | %4s | %6t | %6d | %6d | %7d | %-56s | %-6s | %s | %16s | %s",
-			p.Origin(),
-			v.Timestamp().Format(pattern),
-			v.Stream(),
-			p.IsRealtime(),
-			v.Sequence,
-			p.Sequence(),
-			len(p.Payload()),
-			p.Filename(),
-			p.Format(),
-			p.Timestamp().Format(time.RFC3339),
-			upi,
-			valid,
-		)
+		if *list {
+			log.Printf("%s | %s | %4s | %6t | %6d | %6d | %7d | %-56s | %-6s | %s | %16s | %s",
+				p.Origin(),
+				v.Timestamp().Format(pattern),
+				v.Stream(),
+				p.IsRealtime(),
+				v.Sequence,
+				p.Sequence(),
+				len(p.Payload()),
+				p.Filename(),
+				p.Format(),
+				p.Timestamp().Format(time.RFC3339),
+				upi,
+				valid,
+			)
+		}
+		size += uint64(len(p.Payload()))
+		count++
+	}
+	log.Printf("%d packets found (%dMB)", count, size>>20)
+	if *list {
+		return
+	}
+	for _, c := range counter {
+		for s, z := range c.Sources {
+			log.Printf("%4s: %32s: %12d -> %12dMB", s, c.UPI, z.Count, z.Size>>20)
+		}
 	}
 }
 
-func Packets(a, s string, v int, cs []panda.Channel) (<-chan panda.HRPacket, error) {
+func Packets(a, mode, src string, v int, cs []panda.Channel) (<-chan panda.HRPacket, error) {
 	d, err := panda.DecodeHR(v)
 	if err != nil {
 		return nil, err
@@ -152,6 +195,9 @@ func Packets(a, s string, v int, cs []panda.Channel) (<-chan panda.HRPacket, err
 			if !ok {
 				continue
 			}
+			if len(src) > 0 && v.Origin() != src {
+				continue
+			}
 			ix := sort.Search(len(cs), func(i int) bool {
 				return cs[i] <= v.Stream()
 			})
@@ -159,7 +205,7 @@ func Packets(a, s string, v int, cs []panda.Channel) (<-chan panda.HRPacket, err
 				continue
 			}
 			ok = false
-			switch r := v.IsRealtime(); s {
+			switch r := v.IsRealtime(); mode {
 			case "realtime":
 				ok = r
 			case "playback":
