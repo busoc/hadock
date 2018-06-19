@@ -87,6 +87,9 @@ func (f *filestore) Store(i uint8, p panda.HRPacket) error {
 			return err
 		}
 		f := p.Filename()
+		if err := os.Remove(path.Join(hard, f)); err != nil && !os.IsNotExist(err) {
+			return err
+		}
 		if err := os.Link(path.Join(dir, f), path.Join(hard, f)); err != nil {
 			return err
 		}
