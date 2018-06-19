@@ -100,7 +100,7 @@ func walk(d string) (<-chan []byte, error) {
 	go func() {
 		defer close(q)
 
-		buf := make([]byte, 4*1024*1024)
+		buf := make([]byte, 8*1024*1024)
 		err := filepath.Walk(d, func(p string, i os.FileInfo, err error) error {
 			if err != nil {
 				return err

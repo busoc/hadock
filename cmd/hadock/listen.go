@@ -12,8 +12,8 @@ import (
 	"plugin"
 	"time"
 
-	"github.com/busoc/panda"
 	"github.com/busoc/hadock"
+	"github.com/busoc/panda"
 	"github.com/midbel/cli"
 	"github.com/midbel/toml"
 )
@@ -43,10 +43,10 @@ type pool struct {
 }
 
 type notifier struct {
-	Scheme   string        `toml:"type"`
-	Location string        `toml:"location"`
-	Source   string        `toml:"source"`
-	Instance int32         `toml:"instance"`
+	Scheme   string          `toml:"type"`
+	Location string          `toml:"location"`
+	Source   string          `toml:"source"`
+	Instance int32           `toml:"instance"`
 	Channels []panda.Channel `toml:"channels"`
 }
 
@@ -157,7 +157,7 @@ func Convert(ps <-chan *hadock.Packet) <-chan *hadock.Item {
 				log.Println(err)
 			}
 			var (
-				hr panda.HRPacket
+				hr  panda.HRPacket
 				hdh panda.VMUHeader
 			)
 			switch p := v.(type) {

@@ -27,7 +27,7 @@ type Message struct {
 	Origin    string        `json:"origin"`
 	Sequence  uint32        `json:"sequence"`
 	Instance  int32         `json:"instance"`
-	Channel   panda.Channel   `json:"channel"`
+	Channel   panda.Channel `json:"channel"`
 	Realtime  bool          `json:"realtime"`
 	Count     uint32        `json:"count"`
 	Elapsed   time.Duration `json:"elapsed"`

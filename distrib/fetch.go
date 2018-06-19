@@ -17,9 +17,9 @@ import (
 	"strings"
 	"time"
 
-	"github.com/busoc/panda"
 	img "github.com/busoc/hadock/internal/image"
 	"github.com/busoc/hadock/internal/science"
+	"github.com/busoc/panda"
 	"github.com/gorilla/handlers"
 )
 
