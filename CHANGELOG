@@ -1,0 +1,9 @@
+hadock (0.3.2) unstable; urgency=high
+
+  * delete existing hard link to files before create it again. Overhead needed
+    to always keep valid link between operational and scientific tree structure.
+  * check the length of packets received from client to be sure that they
+    contains enough bytes regarding the size of the different headers making
+    VMU packets.
+
+-- Nicolas Brun <nicolas.brun@busoc.be>  Thu, 02 august 2018 07:32:00 GMT
