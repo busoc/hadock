@@ -125,7 +125,7 @@ func runListen(cmd *cli.Command, args []string) error {
 	age := time.Second * time.Duration(c.Age)
 	for i := range Convert(ps) {
 		if err := fs.Store(uint8(i.Instance), i.HRPacket); err != nil {
-			log.Println("storing VMU packet %s failed: %s", i.HRPacket.Filename(), err)
+			log.Printf("storing VMU packet %s failed: %s", i.HRPacket.Filename(), err)
 		}
 		if age == 0 || time.Since(i.Timestamp()) <= age {
 			pool.Notify(i)

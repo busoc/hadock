@@ -67,8 +67,8 @@ type filestore struct {
 	encode           func(io.Writer, panda.HRPacket) error
 }
 
-func (f *filestore) mkdirall(i uint8, p panda.HRPacket) (string, error) {
-	dir, err := joinPath(f.datadir, p, i, f.granul, false)
+func (f *filestore) mkdirall(dir string, i uint8, p panda.HRPacket) (string, error) {
+	dir, err := joinPath(dir, p, i, f.granul, false)
 	if err != nil {
 		return "", err
 	}
@@ -85,7 +85,7 @@ func (f *filestore) Store(i uint8, p panda.HRPacket) error {
 	if err := f.encode(w, p); err != nil {
 		return fmt.Errorf("%s not written: %s", filename, err)
 	}
-	dir, err := f.mkdirall(i, p)
+	dir, err := f.mkdirall(f.datadir, i, p)
 	if err != nil {
 		return err
 	}
@@ -138,7 +138,7 @@ func (f *filestore) Store(i uint8, p panda.HRPacket) error {
 			return err
 		}
 		if s, err := os.Stat(f.harddir); err == nil && s.IsDir() {
-			hard, err := f.mkdirall(i, p)
+			hard, err := f.mkdirall(f.harddir, i, p)
 			if err != nil {
 				return err
 			}
