@@ -29,6 +29,7 @@ type storer struct {
 	Location    string `toml:"location"`
 	Hard        string `toml:"link"`
 	Raw         bool   `toml:"raw"`
+	Remove      bool   `toml:"remove"`
 	Granularity uint   `toml:"interval"`
 }
 
@@ -124,7 +125,7 @@ func runListen(cmd *cli.Command, args []string) error {
 	age := time.Second * time.Duration(c.Age)
 	for i := range Convert(ps) {
 		if err := fs.Store(uint8(i.Instance), i.HRPacket); err != nil {
-			log.Println(err)
+			log.Println("storing VMU packet %s failed: %s", i.HRPacket.Filename(), err)
 		}
 		if age == 0 || time.Since(i.Timestamp()) <= age {
 			pool.Notify(i)
@@ -154,7 +155,8 @@ func Convert(ps <-chan *hadock.Packet) <-chan *hadock.Item {
 			}
 			_, v, err := d.Decode(p.Payload)
 			if err != nil {
-				log.Println(err)
+				log.Printf("decoding VMU packet failed: %s", err)
+				continue
 			}
 			var (
 				hr  panda.HRPacket
@@ -306,17 +308,19 @@ func setupStorage(vs []storer) (hadock.Storage, error) {
 		default:
 			continue
 		case "file":
-			if err := os.MkdirAll(v.Location, 0755); err != nil {
+			if err = os.MkdirAll(v.Location, 0755); err != nil {
+				log.Println("storage, fail to create primary directory: %s => %s", v.Location, err)
 				break
 			}
-			if err := os.MkdirAll(v.Hard, 0755); v.Hard != "" && err != nil {
+			if err = os.MkdirAll(v.Hard, 0755); v.Hard != "" && err != nil {
+				log.Println("storage, fail to create secondary directory: %s => %s", v.Hard, err)
 				break
 			}
-			s, err = hadock.NewLocalStorage(v.Location, v.Hard, int(v.Granularity), v.Raw)
+			s, err = hadock.NewLocalStorage(v.Location, v.Hard, int(v.Granularity), v.Raw, v.Remove)
 		case "http":
 			s, err = hadock.NewHTTPStorage(v.Location, int(v.Granularity))
 		case "hrdp":
-			if err := os.MkdirAll(v.Location, 0755); err != nil {
+			if err = os.MkdirAll(v.Location, 0755); err != nil {
 				break
 			}
 			s, err = hadock.NewHRDPStorage(v.Location, 2)

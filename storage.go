@@ -30,7 +30,7 @@ func Multistore(s ...Storage) Storage {
 	return &multistore{ms}
 }
 
-func NewLocalStorage(d, h string, g int, r bool) (Storage, error) {
+func NewLocalStorage(d, h string, g int, raw, rem bool) (Storage, error) {
 	i, err := os.Stat(d)
 	if err != nil {
 		return nil, err
@@ -38,8 +38,8 @@ func NewLocalStorage(d, h string, g int, r bool) (Storage, error) {
 	if !i.IsDir() {
 		return nil, fmt.Errorf("%s: not a directory", d)
 	}
-	f := &filestore{datadir: d, harddir: h, granul: g}
-	if r {
+	f := &filestore{datadir: d, harddir: h, granul: g, remove: rem}
+	if raw {
 		f.encode = encodeRawPacket
 	} else {
 		f.encode = func(w io.Writer, p panda.HRPacket) error {
@@ -63,22 +63,36 @@ func NewHTTPStorage(d string, g int) (Storage, error) {
 type filestore struct {
 	datadir, harddir string
 	granul           int
+	remove           bool
 	encode           func(io.Writer, panda.HRPacket) error
+}
+
+func (f *filestore) mkdirall(i uint8, p panda.HRPacket) (string, error) {
+	dir, err := joinPath(f.datadir, p, i, f.granul, false)
+	if err != nil {
+		return "", err
+	}
+	if err := os.MkdirAll(dir, 0755); err != nil && !os.IsExist(err) {
+		return "", err
+	}
+	return dir, nil
 }
 
 func (f *filestore) Store(i uint8, p panda.HRPacket) error {
 	w := new(bytes.Buffer)
+	filename := p.Filename()
+	badname := filename + ".bad"
 	if err := f.encode(w, p); err != nil {
-		return fmt.Errorf("%s not written: %s", p.Filename(), err)
+		return fmt.Errorf("%s not written: %s", filename, err)
 	}
-	dir, err := joinPath(f.datadir, p, i, f.granul, false)
+	dir, err := f.mkdirall(i, p)
 	if err != nil {
 		return err
 	}
-	if err := os.MkdirAll(dir, 0755); err != nil && !os.IsExist(err) {
-		return err
+	if f.remove {
+		os.Remove(path.Join(dir, badname))
 	}
-	if err := ioutil.WriteFile(path.Join(dir, p.Filename()), w.Bytes(), 0644); err != nil {
+	if err := ioutil.WriteFile(path.Join(dir, filename), w.Bytes(), 0644); err != nil {
 		return err
 	}
 	if n, err := os.Stat(f.harddir); err == nil && n.IsDir() {
@@ -86,11 +100,11 @@ func (f *filestore) Store(i uint8, p panda.HRPacket) error {
 		if err := os.MkdirAll(hard, 0755); err != nil && !os.IsExist(err) {
 			return err
 		}
-		f := p.Filename()
-		if err := os.Remove(path.Join(hard, f)); err != nil && !os.IsNotExist(err) {
-			return err
+		os.Remove(path.Join(hard, filename))
+		if f.remove {
+			os.Remove(path.Join(hard, badname))
 		}
-		if err := os.Link(path.Join(dir, f), path.Join(hard, f)); err != nil {
+		if err := os.Link(path.Join(dir, filename), path.Join(hard, filename)); err != nil {
 			return err
 		}
 	}
@@ -115,16 +129,24 @@ func (f *filestore) Store(i uint8, p panda.HRPacket) error {
 		if w.Len() == 0 {
 			return nil
 		}
-		n := p.Filename() + ".xml"
-		if err := ioutil.WriteFile(path.Join(dir, n), w.Bytes(), 0644); err != nil {
+		filename += ".xml"
+		badname += ".xml"
+		if f.remove {
+			os.Remove(path.Join(dir, badname))
+		}
+		if err := ioutil.WriteFile(path.Join(dir, filename), w.Bytes(), 0644); err != nil {
 			return err
 		}
 		if s, err := os.Stat(f.harddir); err == nil && s.IsDir() {
-			hard, _ := joinPath(f.harddir, p, i, f.granul, true)
-			if err := os.MkdirAll(hard, 0755); err != nil && !os.IsExist(err) {
+			hard, err := f.mkdirall(i, p)
+			if err != nil {
 				return err
 			}
-			if err := os.Link(path.Join(dir, n), path.Join(hard, n)); err != nil {
+			os.Remove(path.Join(hard, filename))
+			if f.remove {
+				os.Remove(path.Join(hard, badname))
+			}
+			if err := os.Link(path.Join(dir, filename), path.Join(hard, filename)); err != nil {
 				return err
 			}
 		}

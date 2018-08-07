@@ -46,6 +46,11 @@ var commands = []*cli.Command{
 	},
 }
 
+func init() {
+	cli.Version = "0.3.3"
+	cli.BuildTime = "2018-08-07 10:41:00"
+}
+
 func main() {
 	log.SetFlags(0)
 	usage := func() {
