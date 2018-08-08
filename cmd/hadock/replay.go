@@ -26,6 +26,7 @@ func runReplay(cmd *cli.Command, args []string) error {
 	size := cmd.Flag.Int("s", 0, "chunk size")
 	mode := cmd.Flag.Int("m", hadock.OPS, "mode")
 	gap := cmd.Flag.Int("g", 0, "gap")
+	num := cmd.Flag.Int("n", 0, "count")
 	vmu := cmd.Flag.Int("t", panda.VMUProtocol2, "vmu version")
 	datadir := cmd.Flag.String("d", "", "archive")
 	gz := cmd.Flag.Bool("z", false, "rfc1952")
@@ -61,7 +62,7 @@ func runReplay(cmd *cli.Command, args []string) error {
 		rand.Seed(time.Now().Unix())
 	}
 	skip := true
-	for i, j := 0, 0; ; i++ {
+	for i, j := 0, 0; *num <= 0 || i < *num; i++ {
 		select {
 		case <-tick.C:
 			if *gap > 0 && i == j {
@@ -86,6 +87,7 @@ func runReplay(cmd *cli.Command, args []string) error {
 			return nil
 		}
 	}
+	return nil
 }
 
 func walk(d string) (<-chan []byte, error) {
