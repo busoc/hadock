@@ -17,6 +17,11 @@ import (
 	"github.com/busoc/panda"
 )
 
+const (
+	BAD = ".bad"
+	XML = ".xml"
+)
+
 type Storage interface {
 	Store(uint8, panda.HRPacket) error
 }
@@ -81,7 +86,7 @@ func (f *filestore) mkdirall(dir string, i uint8, p panda.HRPacket) (string, err
 func (f *filestore) Store(i uint8, p panda.HRPacket) error {
 	w := new(bytes.Buffer)
 	filename := p.Filename()
-	badname := filename + ".bad"
+	badname := filename + BAD
 	if err := f.encode(w, p); err != nil {
 		return fmt.Errorf("%s not written: %s", filename, err)
 	}
@@ -96,8 +101,8 @@ func (f *filestore) Store(i uint8, p panda.HRPacket) error {
 		return err
 	}
 	if n, err := os.Stat(f.harddir); err == nil && n.IsDir() {
-		hard, _ := joinPath(f.harddir, p, i, f.granul, true)
-		if err := os.MkdirAll(hard, 0755); err != nil && !os.IsExist(err) {
+		hard, err := f.mkdirall(f.harddir, i, p)
+		if err != nil {
 			return err
 		}
 		os.Remove(path.Join(hard, filename))
@@ -129,8 +134,8 @@ func (f *filestore) Store(i uint8, p panda.HRPacket) error {
 		if w.Len() == 0 {
 			return nil
 		}
-		filename += ".xml"
-		badname += ".xml"
+		filename += XML
+		badname += XML
 		if f.remove {
 			os.Remove(path.Join(dir, badname))
 		}
