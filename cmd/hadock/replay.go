@@ -8,7 +8,7 @@ import (
 	// "fmt"
 	"io"
 	"log"
-	"math/rand"
+	// "math/rand"
 	"net"
 	"os"
 	"os/signal"
@@ -22,13 +22,11 @@ import (
 )
 
 func runReplay(cmd *cli.Command, args []string) error {
-	rate := cmd.Flag.Int("r", 0, "rate")
+	rate := cmd.Flag.Duration("r", time.Second, "rate")
 	size := cmd.Flag.Int("s", 0, "chunk size")
 	mode := cmd.Flag.Int("m", hadock.OPS, "mode")
-	gap := cmd.Flag.Int("g", 0, "gap")
 	num := cmd.Flag.Int("n", 0, "count")
 	vmu := cmd.Flag.Int("t", panda.VMUProtocol2, "vmu version")
-	datadir := cmd.Flag.String("d", "", "archive")
 	gz := cmd.Flag.Bool("z", false, "rfc1952")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
@@ -37,14 +35,10 @@ func runReplay(cmd *cli.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	queue, err := walk(*datadir)
-	if err != nil {
-		return err
-	}
 	if *rate < 1 {
 		*rate = 1
 	}
-	tick := time.NewTicker(time.Second / time.Duration(*rate))
+	tick := time.NewTicker(rate)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Kill, os.Interrupt)
 
@@ -58,23 +52,13 @@ func runReplay(cmd *cli.Command, args []string) error {
 		c.Close()
 		log.Printf("%d packets (%.2fKB) processed in %s", count, float64(bytes)/1024, time.Since(n))
 	}()
-	if *gap > 0 {
-		rand.Seed(time.Now().Unix())
-	}
-	skip := true
-	for i, j := 0, 0; *num <= 0 || i < *num; i++ {
+	queue := walkPaths(cmd.Flag.Args()[1:])
+	for i := 0; *num <= 0 || i < *num; i++ {
 		select {
 		case <-tick.C:
-			if *gap > 0 && i == j {
-				j = i + rand.Intn(*gap)
-				skip = !skip
-			}
 			bs, ok := <-queue
 			if !ok {
 				return nil
-			}
-			if *gap > 0 && skip {
-				continue
 			}
 			if _, err := c.Write(bs); err != nil {
 				log.Println(err)
@@ -88,6 +72,23 @@ func runReplay(cmd *cli.Command, args []string) error {
 		}
 	}
 	return nil
+}
+
+func walkPaths(ds []string) <-chan []byte {
+	q := make(chan []byte)
+	go func() {
+		defer close(q)
+		for _, d := range ds {
+			queue, err := walk(d)
+			if err != nil {
+				continue
+			}
+			for bs := range queue {
+				q <- bs
+			}
+		}
+	}()
+	return q
 }
 
 func walk(d string) (<-chan []byte, error) {

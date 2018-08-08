@@ -25,7 +25,7 @@ Use {{.Name}} [command] -h for more information about its usage.
 
 var commands = []*cli.Command{
 	{
-		Usage: "replay [-r] [-s] [-m] [-t] [-d] <host:port>",
+		Usage: "replay [-r] [-s] [-m] [-t] <host:port> <archive,...",
 		Short: "send VMU packets throught the network from a HRDP archive",
 		Run:   runReplay,
 	},
