@@ -38,7 +38,7 @@ func runReplay(cmd *cli.Command, args []string) error {
 	if *rate < 1 {
 		*rate = 1
 	}
-	tick := time.NewTicker(rate)
+	tick := time.NewTicker(*rate)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Kill, os.Interrupt)
 
