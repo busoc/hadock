@@ -5,10 +5,8 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/binary"
-	// "fmt"
 	"io"
 	"log"
-	// "math/rand"
 	"net"
 	"os"
 	"os/signal"
@@ -92,13 +90,6 @@ func walkPaths(ds []string) <-chan []byte {
 }
 
 func walk(d string) (<-chan []byte, error) {
-	// i, err := os.Stat(d)
-	// if err != nil {
-	// 	return nil, err
-	// }
-	// if !i.IsDir() {
-	// 	return nil, fmt.Errorf("%s not a directory", d)
-	// }
 	q := make(chan []byte)
 	go func() {
 		defer close(q)
