@@ -5,7 +5,7 @@ import (
 	"bytes"
 	"compress/gzip"
 	"encoding/binary"
-	"fmt"
+	// "fmt"
 	"io"
 	"log"
 	"math/rand"
@@ -91,13 +91,13 @@ func runReplay(cmd *cli.Command, args []string) error {
 }
 
 func walk(d string) (<-chan []byte, error) {
-	i, err := os.Stat(d)
-	if err != nil {
-		return nil, err
-	}
-	if !i.IsDir() {
-		return nil, fmt.Errorf("%s not a directory", d)
-	}
+	// i, err := os.Stat(d)
+	// if err != nil {
+	// 	return nil, err
+	// }
+	// if !i.IsDir() {
+	// 	return nil, fmt.Errorf("%s not a directory", d)
+	// }
 	q := make(chan []byte)
 	go func() {
 		defer close(q)
