@@ -7,3 +7,11 @@ hadock (0.3.2) unstable; urgency=high
     VMU packets.
 
 -- Nicolas Brun <nicolas.brun@busoc.be>  Thu, 02 august 2018 07:32:00 GMT
+
+hadock (0.3.3) unstable; urgency=high
+
+  * new option "remove" for storage sections
+  * remove bad files from archive when remove option is set
+  * remove metadata files for bad data files when remove option is set
+
+-- Nicolas Brun <nicolas.brun@busoc.be>  Wed, 08 august 2018 12:00:00 GMT
