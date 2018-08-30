@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"sort"
+	"log"
 
 	"github.com/busoc/panda"
 )
@@ -116,7 +117,12 @@ func DecodeBinaryPackets(r io.Reader, is []uint8) <-chan *Packet {
 
 		sort.Slice(is, func(i, j int) bool { return is[i] < is[j] })
 		for {
-			p, err := DecodePacket(r)
+			var bs bytes.Buffer
+			p, err := DecodePacket(io.TeeReader(r, &bs))
+
+			if s := internetChecksum(bs.Next(bs.Len()-2)); s != p.Sum {
+				log.Printf("invalid checksum: want %04x, got %04x", p.Sum, s)
+			}
 			switch err {
 			case nil:
 				ix := sort.Search(len(is), func(i int) bool {
@@ -134,6 +140,23 @@ func DecodeBinaryPackets(r io.Reader, is []uint8) <-chan *Packet {
 		}
 	}()
 	return q
+}
+
+func internetChecksum(bs []byte) uint16 {
+	var (
+		answer uint16
+		sum   uint32
+	)
+	r := bytes.NewReader(bs)
+	for r.Len() > 0 {
+		var word uint16
+		binary.Read(r, binary.LittleEndian, &word)
+		sum += uint32(word)
+	}
+	sum = (sum >> 16) + (sum & 0xffff)
+	sum += (sum >> 16)
+	answer = uint16(sum)
+	return ^answer
 }
 
 func EncodePacket(p *Packet) ([]byte, error) {
