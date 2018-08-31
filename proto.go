@@ -120,10 +120,6 @@ func DecodeBinaryPackets(r io.Reader, is []uint8) <-chan *Packet {
 		for {
 			var bs bytes.Buffer
 			p, err := DecodePacket(io.TeeReader(r, &bs))
-
-			if s := sum.Sum1071Bis(bs.Next(bs.Len()-2)); s != p.Sum {
-				log.Printf("invalid checksum: want %04x, got %04x", p.Sum, s)
-			}
 			switch err {
 			case nil:
 				ix := sort.Search(len(is), func(i int) bool {
@@ -132,12 +128,15 @@ func DecodeBinaryPackets(r io.Reader, is []uint8) <-chan *Packet {
 				if len(is) > 0 && (ix >= len(is) || is[ix] != p.Instance) {
 					break
 				}
+				if s := sum.Sum1071Bis(bs.Next(bs.Len()-2)); s != p.Sum {
+					log.Printf("invalid checksum: want %04x, got %04x", p.Sum, s)
+				}
+				q <- p
 			case io.EOF, ErrUnsupportedProtocol, ErrUnsupportedVMUVersion:
 				return
 			default:
 				continue
 			}
-			q <- p
 		}
 	}()
 	return q
