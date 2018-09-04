@@ -20,7 +20,7 @@ import (
 )
 
 func runReplay(cmd *cli.Command, args []string) error {
-	rate := cmd.Flag.Duration("r", time.Second, "rate")
+	rate := cmd.Flag.Duration("r", 0, "rate")
 	size := cmd.Flag.Int("s", 0, "chunk size")
 	mode := cmd.Flag.Int("m", hadock.OPS, "mode")
 	num := cmd.Flag.Int("n", 0, "count")
@@ -36,7 +36,6 @@ func runReplay(cmd *cli.Command, args []string) error {
 	if *rate < 1 {
 		*rate = 1
 	}
-	tick := time.NewTicker(*rate)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Kill, os.Interrupt)
 
@@ -46,16 +45,14 @@ func runReplay(cmd *cli.Command, args []string) error {
 		bytes uint64
 	)
 	defer func() {
-		tick.Stop()
 		c.Close()
 		log.Printf("%d packets (%.2fKB) processed in %s", count, float64(bytes)/1024, time.Since(n))
 	}()
 	queue := walkPaths(cmd.Flag.Args()[1:])
 	for i := 0; *num <= 0 || i < *num; i++ {
 		select {
-		case <-tick.C:
-			bs, ok := <-queue
-			if !ok {
+		case bs, ok := <-queue:
+			if !ok && len(bs) == 0 {
 				return nil
 			}
 			if _, err := c.Write(bs); err != nil {
@@ -65,6 +62,7 @@ func runReplay(cmd *cli.Command, args []string) error {
 				}
 			}
 			count, bytes = count+1, bytes+uint64(len(bs))
+			time.Sleep(*rate)
 		case <-sig:
 			return nil
 		}
@@ -79,10 +77,13 @@ func walkPaths(ds []string) <-chan []byte {
 		for _, d := range ds {
 			queue, err := walk(d)
 			if err != nil {
+				log.Println(err)
 				continue
 			}
 			for bs := range queue {
-				q <- bs
+				vs := make([]byte, len(bs))
+				copy(vs, bs)
+				q <- vs
 			}
 		}
 	}()
@@ -94,7 +95,7 @@ func walk(d string) (<-chan []byte, error) {
 	go func() {
 		defer close(q)
 
-		buf := make([]byte, 8*1024*1024)
+		buf := make([]byte, 8<<20)
 		err := filepath.Walk(d, func(p string, i os.FileInfo, err error) error {
 			if err != nil {
 				return err
@@ -123,18 +124,32 @@ func walk(d string) (<-chan []byte, error) {
 	return q, nil
 }
 
-func scanVMUPackets(bs []byte, ateof bool) (int, []byte, error) {
-	if len(bs) < 4 {
+func scanVMUPackets(buf []byte, ateof bool) (int, []byte, error) {
+	if len(buf) < 4 {
 		return 0, nil, nil
 	}
-	s := int(binary.LittleEndian.Uint32(bs[:4]) + 4)
-	if s >= len(bs) {
+	length := int(binary.LittleEndian.Uint32(buf[:4]) + 4)
+	if len(buf) < length {
 		return 0, nil, nil
 	}
-	vs := make([]byte, s-panda.HRDPHeaderLength-panda.HRDLSyncLength-4)
-	copy(vs, bs[4+panda.HRDPHeaderLength+panda.HRDLSyncLength:])
-	return s, vs, nil
+	b := make([]byte, length)
+	copy(b, buf[:length])
+
+	return length, b[4+panda.HRDPHeaderLength+panda.HRDLSyncLength:], nil
 }
+
+// func scanVMUPackets(bs []byte, ateof bool) (int, []byte, error) {
+// 	if len(bs) < 4 {
+// 		return 0, nil, nil
+// 	}
+// 	s := int(binary.LittleEndian.Uint32(bs)) + 4
+// 	if s >= len(bs) {
+// 		return 0, nil, nil
+// 	}
+// 	vs := make([]byte, s-panda.HRDPHeaderLength-panda.HRDLSyncLength-4)
+// 	copy(vs, bs[4+panda.HRDPHeaderLength+panda.HRDLSyncLength:])
+// 	return s, vs, nil
+// }
 
 type replay struct {
 	net.Conn
