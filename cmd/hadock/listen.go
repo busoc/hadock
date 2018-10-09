@@ -64,6 +64,7 @@ func runListen(cmd *cli.Command, args []string) error {
 	c := struct {
 		Addr      string   `toml:"address"`
 		Mode      string   `toml:"mode"`
+		Buffer    uint     `toml:"buffer"`
 		Proxy     proxy    `toml:"proxy"`
 		Instances []uint8  `toml:"instances"`
 		Age       uint     `toml:"age"`
@@ -108,7 +109,7 @@ func runListen(cmd *cli.Command, args []string) error {
 	default:
 		return fmt.Errorf("unsupported working mode %s", c.Mode)
 	}
-	ps, err := ListenPackets(c.Addr, c.Proxy, df, c.Instances)
+	ps, err := ListenPackets(c.Addr, int(c.Buffer), c.Proxy, df, c.Instances)
 	if err != nil {
 		return err
 	}
@@ -168,6 +169,7 @@ func Convert(ps <-chan *hadock.Packet) <-chan *hadock.Item {
 			case *panda.Image:
 				hr, hdh = v.(panda.HRPacket), *p.VMUHeader
 			default:
+				log.Println("unknown packet type - skipping")
 				continue
 			}
 			q <- &hadock.Item{int32(p.Instance), hr}
@@ -177,12 +179,15 @@ func Convert(ps <-chan *hadock.Packet) <-chan *hadock.Item {
 	return q
 }
 
-func ListenPackets(a string, p proxy, decode decodeFunc, is []uint8) (<-chan *hadock.Packet, error) {
+func ListenPackets(a string, size int, p proxy, decode decodeFunc, is []uint8) (<-chan *hadock.Packet, error) {
 	s, err := net.Listen("tcp", a)
 	if err != nil {
 		return nil, err
 	}
-	q := make(chan *hadock.Packet, 100)
+	if size == 0 {
+		size++
+	}
+	q := make(chan *hadock.Packet, size)
 	go func() {
 		defer func() {
 			s.Close()
