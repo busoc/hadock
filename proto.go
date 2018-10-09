@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"sort"
 
 	"github.com/busoc/panda"
@@ -128,6 +129,7 @@ func DecodeBinaryPackets(r io.Reader, is []uint8) <-chan *Packet {
 			case io.EOF, ErrUnsupportedProtocol, ErrUnsupportedVMUVersion:
 				return
 			default:
+				log.Println("fail to decode HDK packet: %s - skipping", err)
 				continue
 			}
 			q <- p
