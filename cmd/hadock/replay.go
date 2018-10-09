@@ -3,7 +3,6 @@ package main
 import (
 	"bufio"
 	"bytes"
-	"compress/gzip"
 	"encoding/binary"
 	"io"
 	"log"
@@ -17,26 +16,24 @@ import (
 	"github.com/busoc/panda"
 	"github.com/midbel/cli"
 	"github.com/midbel/rustine/sum"
+	"golang.org/x/time/rate"
 )
 
 func runReplay(cmd *cli.Command, args []string) error {
-	rate := cmd.Flag.Duration("r", time.Second, "rate")
+	rate, _ := cli.ParseSize("8M")
+	cmd.Flag.Var(&rate, "r", "rate")
+	// rate := cmd.Flag.Duration("r", time.Second, "rate")
 	size := cmd.Flag.Int("s", 0, "chunk size")
 	mode := cmd.Flag.Int("m", hadock.OPS, "mode")
 	num := cmd.Flag.Int("n", 0, "count")
 	vmu := cmd.Flag.Int("t", panda.VMUProtocol2, "vmu version")
-	gz := cmd.Flag.Bool("z", false, "rfc1952")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
-	c, err := Replay(cmd.Flag.Arg(0), *size, *vmu, *mode, *gz)
+	c, err := Replay(cmd.Flag.Arg(0), *size, *vmu, *mode, rate)
 	if err != nil {
 		return err
 	}
-	if *rate < 1 {
-		*rate = 1
-	}
-	tick := time.NewTicker(*rate)
 	sig := make(chan os.Signal, 1)
 	signal.Notify(sig, os.Kill, os.Interrupt)
 
@@ -46,15 +43,13 @@ func runReplay(cmd *cli.Command, args []string) error {
 		bytes uint64
 	)
 	defer func() {
-		tick.Stop()
 		c.Close()
 		log.Printf("%d packets (%.2fKB) processed in %s", count, float64(bytes)/1024, time.Since(n))
 	}()
 	queue := walkPaths(cmd.Flag.Args()[1:])
 	for i := 0; *num <= 0 || i < *num; i++ {
 		select {
-		case <-tick.C:
-			bs, ok := <-queue
+		case bs, ok := <-queue:
 			if !ok {
 				return nil
 			}
@@ -72,79 +67,17 @@ func runReplay(cmd *cli.Command, args []string) error {
 	return nil
 }
 
-func walkPaths(ds []string) <-chan []byte {
-	q := make(chan []byte)
-	go func() {
-		defer close(q)
-		for _, d := range ds {
-			queue, err := walk(d)
-			if err != nil {
-				continue
-			}
-			for bs := range queue {
-				q <- bs
-			}
-		}
-	}()
-	return q
-}
-
-func walk(d string) (<-chan []byte, error) {
-	q := make(chan []byte)
-	go func() {
-		defer close(q)
-
-		buf := make([]byte, 8*1024*1024)
-		err := filepath.Walk(d, func(p string, i os.FileInfo, err error) error {
-			if err != nil {
-				return err
-			}
-			if i.IsDir() {
-				return nil
-			}
-			f, err := os.Open(p)
-			if err != nil {
-				return err
-			}
-			defer f.Close()
-
-			s := bufio.NewScanner(f)
-			s.Buffer(buf, len(buf))
-			s.Split(scanVMUPackets)
-			for s.Scan() {
-				q <- s.Bytes()
-			}
-			return s.Err()
-		})
-		if err != nil {
-			log.Println(err)
-		}
-	}()
-	return q, nil
-}
-
-func scanVMUPackets(bs []byte, ateof bool) (int, []byte, error) {
-	if len(bs) < 4 {
-		return 0, nil, nil
-	}
-	s := int(binary.LittleEndian.Uint32(bs[:4]) + 4)
-	if s >= len(bs) {
-		return 0, nil, nil
-	}
-	vs := make([]byte, s-panda.HRDPHeaderLength-panda.HRDLSyncLength-4)
-	copy(vs, bs[4+panda.HRDPHeaderLength+panda.HRDLSyncLength:])
-	return s, vs, nil
-}
-
 type replay struct {
 	net.Conn
-	size       int
-	counter    uint16
-	version    uint16
-	compressed bool
+
+	limiter *rate.Limiter
+
+	size    int
+	counter uint16
+	version uint16
 }
 
-func Replay(a string, s, t, m int, z bool) (net.Conn, error) {
+func Replay(a string, s, t, m int, z cli.Size) (net.Conn, error) {
 	c, err := net.Dial("tcp", a)
 	if err != nil {
 		return nil, err
@@ -153,44 +86,27 @@ func Replay(a string, s, t, m int, z bool) (net.Conn, error) {
 	if s <= 0 {
 		p = hadock.HadockVersion1
 	}
-	if z {
-		switch s {
-		case gzip.NoCompression, gzip.BestSpeed, gzip.BestCompression, gzip.HuffmanOnly:
-		default:
-			s = gzip.DefaultCompression
-		}
+	r := &replay{
+		Conn:    c,
+		limiter: rate.NewLimiter(rate.Limit(z.Float()), int(z.Int())/10),
+		size:    s,
+		version: uint16(p)<<12 | uint16(t)<<8 | uint16(m),
 	}
-	v := uint16(p)<<12 | uint16(t)<<8 | uint16(m)
-	return &replay{Conn: c, size: s, version: v, compressed: z}, nil
+	return r, nil
 }
 
 func (r *replay) Write(bs []byte) (int, error) {
 	defer func() {
 		r.counter++
 	}()
-	if r.compressed {
-		return r.writeCompressed(bs)
+	v := r.limiter.ReserveN(time.Now(), len(bs))
+	if !v.OK() {
+		// log.Println("not allow to write")
+		return 0, nil
 	}
+	time.Sleep(v.Delay())
+
 	return r.writePacket(bs)
-}
-
-func (r *replay) writeCompressed(bs []byte) (int, error) {
-	g, err := gzip.NewWriterLevel(r.Conn, r.size)
-	if err != nil {
-		return 0, err
-	}
-	defer g.Close()
-
-	g.Header.Extra = make([]byte, 2)
-	binary.BigEndian.PutUint16(g.Header.Extra, r.version)
-	n, err := g.Write(bs)
-	if err != nil {
-		return n, err
-	}
-	if err := g.Flush(); err != nil {
-		return 0, err
-	}
-	return n, nil
 }
 
 func (r *replay) writePacket(bs []byte) (int, error) {
@@ -242,4 +158,68 @@ func (r *replay) preparePacketV2(bs []byte) []io.Reader {
 		rs = append(rs, w)
 	}
 	return rs
+}
+
+func walkPaths(ds []string) <-chan []byte {
+	q := make(chan []byte)
+	go func() {
+		defer close(q)
+		for _, d := range ds {
+			queue, err := walk(d)
+			if err != nil {
+				continue
+			}
+			for bs := range queue {
+				q <- bs
+			}
+		}
+	}()
+	return q
+}
+
+func walk(d string) (<-chan []byte, error) {
+	q := make(chan []byte)
+	go func() {
+		defer close(q)
+
+		buf := make([]byte, 8<<20)
+		err := filepath.Walk(d, func(p string, i os.FileInfo, err error) error {
+			if err != nil {
+				return err
+			}
+			if i.IsDir() {
+				return nil
+			}
+			f, err := os.Open(p)
+			if err != nil {
+				return err
+			}
+			defer f.Close()
+
+			s := bufio.NewScanner(f)
+			s.Buffer(buf, len(buf))
+			s.Split(scanVMUPackets)
+			for s.Scan() {
+				q <- s.Bytes()
+			}
+			return s.Err()
+		})
+		if err != nil {
+			log.Println(err)
+		}
+	}()
+	return q, nil
+}
+
+func scanVMUPackets(bs []byte, ateof bool) (int, []byte, error) {
+	if len(bs) < 4 {
+		return 0, nil, nil
+	}
+	s := int(binary.LittleEndian.Uint32(bs[:4]) + 4)
+	if s >= len(bs) {
+		return 0, nil, nil
+	}
+	vs := make([]byte, s-panda.HRDPHeaderLength-panda.HRDLSyncLength-4)
+	copy(vs, bs[4+panda.HRDPHeaderLength+panda.HRDLSyncLength:])
+	return s, vs, nil
 }
