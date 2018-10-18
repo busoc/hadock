@@ -127,9 +127,10 @@ func DecodeBinaryPackets(r io.Reader, is []uint8) <-chan *Packet {
 					break
 				}
 			case io.EOF, ErrUnsupportedProtocol, ErrUnsupportedVMUVersion:
+				log.Println(err)
 				return
 			default:
-				log.Println("fail to decode HDK packet: %s - skipping", err)
+				log.Printf("fail to decode HDK packet: %s - skipping", err)
 				continue
 			}
 			q <- p

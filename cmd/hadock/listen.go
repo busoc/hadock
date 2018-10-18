@@ -137,7 +137,7 @@ func runListen(cmd *cli.Command, args []string) error {
 }
 
 func Convert(ps <-chan *hadock.Packet) <-chan *hadock.Item {
-	q := make(chan *hadock.Item)
+	q := make(chan *hadock.Item, 64)
 	go func() {
 		ds := make(map[int]panda.Decoder)
 		for _, v := range []int{panda.VMUProtocol1, panda.VMUProtocol2} {
@@ -173,7 +173,8 @@ func Convert(ps <-chan *hadock.Packet) <-chan *hadock.Item {
 				continue
 			}
 			q <- &hadock.Item{int32(p.Instance), hr}
-			log.Printf("[%T:%s:%d], %d, %d, %d, %+v", v, hr.Origin(), hr.Sequence(), p.Instance, p.Sequence, p.Length, hdh)
+			_ = hdh
+			// log.Printf("[%T:%s:%d], %d, %d, %d, %+v", v, hr.Origin(), hr.Sequence(), p.Instance, p.Sequence, p.Length, hdh)
 		}
 	}()
 	return q
