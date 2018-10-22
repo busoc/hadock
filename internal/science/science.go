@@ -54,7 +54,8 @@ func ExportScienceData(w io.Writer, bs []byte, t time.Time) error {
 		rs[2] = fmt.Sprint(r.Size() / lrsdChunkLength)
 		for i := 3; i < len(rs); i++ {
 			var v uint16
-			if err := binary.Read(r, binary.LittleEndian, &v); err != nil {
+			// if err := binary.Read(r, binary.LittleEndian, &v); err != nil {
+			if err := binary.Read(r, binary.BigEndian, &v); err != nil {
 				return err
 			}
 			rs[i] = fmt.Sprint(v)

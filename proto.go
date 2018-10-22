@@ -16,6 +16,7 @@ import (
 var (
 	ErrUnsupportedProtocol   = errors.New("unsupported protocol")
 	ErrUnsupportedVMUVersion = errors.New("unsupported vmu version")
+	ErrSkip                  = errors.New("skip")
 )
 
 const (
@@ -126,14 +127,15 @@ func DecodeBinaryPackets(r io.Reader, is []uint8) <-chan *Packet {
 				if len(is) > 0 && (ix >= len(is) || is[ix] != p.Instance) {
 					break
 				}
+				q <- p
 			case io.EOF, ErrUnsupportedProtocol, ErrUnsupportedVMUVersion:
 				log.Println(err)
 				return
+			case ErrSkip:
 			default:
 				log.Printf("fail to decode HDK packet: %s - skipping", err)
 				continue
 			}
-			q <- p
 		}
 	}()
 	return q
@@ -204,7 +206,7 @@ func readPreamble(r io.Reader) (uint16, error) {
 		return 0, err
 	}
 	if preamble != Preamble {
-		return 0, fmt.Errorf("invalid preamble: expected %x, got %x", Preamble, preamble)
+		return 0, ErrSkip//, fmt.Errorf("invalid preamble: expected %x, got %x", Preamble, preamble)
 	}
 	if err := binary.Read(r, binary.BigEndian, &prefix); err != nil {
 		return 0, err

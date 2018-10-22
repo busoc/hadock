@@ -30,7 +30,7 @@ func runMonitor(cmd *cli.Command, args []string) error {
 		if !m.Realtime {
 			mode = "playback"
 		}
-		log.Printf("%s | %9d | %3d | %d | %12s | %9d | %12s | %6.3g | %s | %s | %s",
+		log.Printf("%s | %9d | %3d | %d | %18s | %9d | %12s | %6.3g | %s | %s | %s",
 			m.Origin,
 			m.Sequence,
 			m.Instance,
