@@ -206,7 +206,7 @@ func readPreamble(r io.Reader) (uint16, error) {
 		return 0, err
 	}
 	if preamble != Preamble {
-		return 0, ErrSkip//, fmt.Errorf("invalid preamble: expected %x, got %x", Preamble, preamble)
+		return 0, ErrSkip //, fmt.Errorf("invalid preamble: expected %x, got %x", Preamble, preamble)
 	}
 	if err := binary.Read(r, binary.BigEndian, &prefix); err != nil {
 		return 0, err
