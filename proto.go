@@ -129,7 +129,6 @@ func DecodeBinaryPackets(r io.Reader, is []uint8) <-chan *Packet {
 				}
 				q <- p
 			case io.EOF, ErrUnsupportedProtocol, ErrUnsupportedVMUVersion:
-				log.Println(err)
 				return
 			case ErrSkip:
 			default:
@@ -206,7 +205,7 @@ func readPreamble(r io.Reader) (uint16, error) {
 		return 0, err
 	}
 	if preamble != Preamble {
-		return 0, ErrSkip//, fmt.Errorf("invalid preamble: expected %x, got %x", Preamble, preamble)
+		return 0, ErrSkip //, fmt.Errorf("invalid preamble: expected %x, got %x", Preamble, preamble)
 	}
 	if err := binary.Read(r, binary.BigEndian, &prefix); err != nil {
 		return 0, err
@@ -232,7 +231,7 @@ func readPacket(r io.Reader, p *Packet) error {
 		return err
 	}
 	p.Payload = make([]byte, int(p.Length))
-	if _, err := io.ReadFull(r, p.Payload); err != nil {
+	if n, err := io.ReadFull(r, p.Payload); err != nil {
 		return err
 	}
 	return binary.Read(r, binary.BigEndian, &p.Sum)

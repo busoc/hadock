@@ -113,12 +113,12 @@ func runListen(cmd *cli.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	queue := make(chan *hadock.Item, 100)
+	queue := make(chan *hadock.Item, 1024)
 	defer close(queue)
 	go func() {
 		for i := range queue {
 			if err := ms.Process(uint8(i.Instance), i.HRPacket); err != nil {
-				log.Println(err)
+				log.Printf("plugin: %s", err)
 			}
 		}
 	}()
@@ -131,13 +131,16 @@ func runListen(cmd *cli.Command, args []string) error {
 		if age == 0 || time.Since(i.Timestamp()) <= age {
 			pool.Notify(i)
 		}
-		queue <- i
+		select {
+		case queue <- i:
+		default:
+		}
 	}
 	return nil
 }
 
 func Convert(ps <-chan *hadock.Packet) <-chan *hadock.Item {
-	q := make(chan *hadock.Item, 64)
+	q := make(chan *hadock.Item, 1024)
 	go func() {
 		ds := make(map[int]panda.Decoder)
 		for _, v := range []int{panda.VMUProtocol1, panda.VMUProtocol2} {
@@ -149,32 +152,54 @@ func Convert(ps <-chan *hadock.Packet) <-chan *hadock.Item {
 		}
 
 		defer close(q)
+		tick := time.Tick(time.Second)
+		var (
+			image   int
+			science int
+			dropped int
+			errors  int
+			size    int
+		)
+		logger := log.New(os.Stderr, "[hdk] ", 0)
 		for p := range ps {
 			d, ok := ds[int(p.Version)]
 			if !ok {
+				errors++
+				log.Printf("no decoder available for version %d", p.Version)
 				continue
 			}
 			_, v, err := d.Decode(p.Payload)
 			if err != nil {
+				errors++
 				log.Printf("decoding VMU packet failed: %s", err)
 				continue
 			}
-			var (
-				hr  panda.HRPacket
-				hdh panda.VMUHeader
-			)
-			switch p := v.(type) {
+			var hr panda.HRPacket
+			switch v.(type) {
 			case *panda.Table:
-				hr, hdh = v.(panda.HRPacket), *p.VMUHeader
+				science++
+				hr = v.(panda.HRPacket)
 			case *panda.Image:
-				hr, hdh = v.(panda.HRPacket), *p.VMUHeader
+				image++
+				hr = v.(panda.HRPacket)
 			default:
+				dropped++
 				log.Println("unknown packet type - skipping")
 				continue
 			}
-			q <- &hadock.Item{int32(p.Instance), hr}
-			_ = hdh
-			// log.Printf("[%T:%s:%d], %d, %d, %d, %+v", v, hr.Origin(), hr.Sequence(), p.Instance, p.Sequence, p.Length, hdh)
+			select {
+			case q <- &hadock.Item{int32(p.Instance), hr}:
+				size += len(p.Payload)
+			default:
+				dropped++
+			}
+			select {
+			case <-tick:
+				logger.Printf("images: %6d, sciences: %6d, dropped: %6d, errors: %6d, size: %7dKB", image, science, dropped, errors, size>>10)
+				size, image, science, dropped, errors = 0, 0, 0, 0, 0
+			default:
+			}
+
 		}
 	}()
 	return q
