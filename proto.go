@@ -231,7 +231,7 @@ func readPacket(r io.Reader, p *Packet) error {
 		return err
 	}
 	p.Payload = make([]byte, int(p.Length))
-	if n, err := io.ReadFull(r, p.Payload); err != nil {
+	if _, err := io.ReadFull(r, p.Payload); err != nil {
 		return err
 	}
 	return binary.Read(r, binary.BigEndian, &p.Sum)
