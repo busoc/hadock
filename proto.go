@@ -11,6 +11,7 @@ import (
 	"sort"
 
 	"github.com/busoc/panda"
+	"github.com/midbel/rustine/sum"
 )
 
 var (
@@ -118,7 +119,8 @@ func DecodeBinaryPackets(r io.Reader, is []uint8) <-chan *Packet {
 
 		sort.Slice(is, func(i, j int) bool { return is[i] < is[j] })
 		for {
-			p, err := DecodePacket(r)
+			var bs bytes.Buffer
+			p, err := DecodePacket(io.TeeReader(r, &bs))
 			switch err {
 			case nil:
 				ix := sort.Search(len(is), func(i int) bool {
@@ -126,6 +128,9 @@ func DecodeBinaryPackets(r io.Reader, is []uint8) <-chan *Packet {
 				})
 				if len(is) > 0 && (ix >= len(is) || is[ix] != p.Instance) {
 					break
+				}
+				if s := sum.Sum1071Bis(bs.Next(bs.Len()-2)); s != p.Sum {
+					log.Printf("invalid checksum: want %04x, got %04x", p.Sum, s)
 				}
 				q <- p
 			case io.EOF, ErrUnsupportedProtocol, ErrUnsupportedVMUVersion:
@@ -139,6 +144,7 @@ func DecodeBinaryPackets(r io.Reader, is []uint8) <-chan *Packet {
 	}()
 	return q
 }
+
 
 func EncodePacket(p *Packet) ([]byte, error) {
 	w := new(bytes.Buffer)

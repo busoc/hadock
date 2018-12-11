@@ -22,7 +22,6 @@ import (
 func runReplay(cmd *cli.Command, args []string) error {
 	rate, _ := cli.ParseSize("8M")
 	cmd.Flag.Var(&rate, "r", "rate")
-	// rate := cmd.Flag.Duration("r", time.Second, "rate")
 	size := cmd.Flag.Int("s", 0, "chunk size")
 	mode := cmd.Flag.Int("m", hadock.OPS, "mode")
 	num := cmd.Flag.Int("n", 0, "count")
@@ -101,7 +100,6 @@ func (r *replay) Write(bs []byte) (int, error) {
 	}()
 	v := r.limiter.ReserveN(time.Now(), len(bs))
 	if !v.OK() {
-		// log.Println("not allow to write")
 		return 0, nil
 	}
 	time.Sleep(v.Delay())
@@ -126,15 +124,17 @@ func (r *replay) writePacket(bs []byte) (int, error) {
 }
 
 func (r *replay) preparePacketV1(bs []byte) io.Reader {
-	w := new(bytes.Buffer)
-	binary.Write(w, binary.BigEndian, hadock.Preamble)
-	binary.Write(w, binary.BigEndian, r.version)
-	binary.Write(w, binary.BigEndian, r.counter)
-	binary.Write(w, binary.BigEndian, uint32(len(bs)))
-	w.Write(bs)
-	binary.Write(w, binary.BigEndian, sum.Sum1071(bs))
+	var w, digest bytes.Buffer
+	ws := io.MultiWriter(&w, &digest)
+	binary.Write(ws, binary.BigEndian, hadock.Preamble)
 
-	return w
+	binary.Write(ws, binary.BigEndian, r.version)
+	binary.Write(ws, binary.BigEndian, r.counter)
+	binary.Write(ws, binary.BigEndian, uint32(len(bs)))
+	ws.Write(bs)
+	binary.Write(&w, binary.BigEndian, sum.Sum1071Bis(digest.Bytes()))
+
+	return &w
 }
 
 func (r *replay) preparePacketV2(bs []byte) []io.Reader {
@@ -143,7 +143,7 @@ func (r *replay) preparePacketV2(bs []byte) []io.Reader {
 	rs := make([]io.Reader, 0, c)
 	for i := 0; re.Len() > 0; i++ {
 		vs := re.Next(r.size)
-		s := sum.Sum1071(vs)
+		s := sum.Sum1071Bis(vs)
 
 		w := new(bytes.Buffer)
 		binary.Write(w, binary.BigEndian, hadock.Preamble)
