@@ -195,7 +195,7 @@ func Convert(ps <-chan *hadock.Packet) <-chan *hadock.Item {
 			}
 			select {
 			case <-tick:
-				logger.Printf("images: %6d, sciences: %6d, dropped: %6d, errors: %6d, size: %7dKB", image, science, dropped, errors, size>>10)
+				logger.Printf("%6d images, %6d sciences, %6d dropped, %6d errors, %7dKB", image, science, dropped, errors, size>>10)
 				size, image, science, dropped, errors = 0, 0, 0, 0, 0
 			default:
 			}
@@ -239,7 +239,7 @@ func ListenPackets(a string, size int, p proxy, decode decodeFunc, is []uint8) (
 				for p := range decode(r, is) {
 					q <- p
 				}
-				log.Printf("connection closed: %s", c.RemoteAddr())
+				//log.Printf("connection closed: %s", c.RemoteAddr())
 			}(c)
 		}
 	}()
