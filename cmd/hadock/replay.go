@@ -12,24 +12,24 @@ import (
 	"path/filepath"
 	"time"
 
+	"github.com/juju/ratelimit"
 	"github.com/busoc/hadock"
 	"github.com/busoc/panda"
 	"github.com/midbel/cli"
 	"github.com/midbel/rustine/sum"
-	"golang.org/x/time/rate"
 )
 
 func runReplay(cmd *cli.Command, args []string) error {
 	rate, _ := cli.ParseSize("8M")
 	cmd.Flag.Var(&rate, "r", "rate")
-	size := cmd.Flag.Int("s", 0, "chunk size")
+	block := cmd.Flag.Int("s", 0, "chunk size")
 	mode := cmd.Flag.Int("m", hadock.OPS, "mode")
 	num := cmd.Flag.Int("n", 0, "count")
 	vmu := cmd.Flag.Int("t", panda.VMUProtocol2, "vmu version")
 	if err := cmd.Flag.Parse(args); err != nil {
 		return err
 	}
-	c, err := Replay(cmd.Flag.Arg(0), *size, *vmu, *mode, rate)
+	c, err := Replay(cmd.Flag.Arg(0), *block, *vmu, *mode, rate)
 	if err != nil {
 		return err
 	}
@@ -39,18 +39,21 @@ func runReplay(cmd *cli.Command, args []string) error {
 	n := time.Now()
 	var (
 		count uint64
-		bytes uint64
+		size  uint64
 	)
 	defer func() {
 		c.Close()
-		log.Printf("%d packets (%.2fKB) processed in %s", count, float64(bytes)/1024, time.Since(n))
+		log.Printf("%d packets (%.2fKB) processed in %s", count, float64(size)/1024, time.Since(n))
 	}()
 	queue := walkPaths(cmd.Flag.Args()[1:])
 	for i := 0; *num <= 0 || i < *num; i++ {
 		select {
 		case bs, ok := <-queue:
-			if !ok {
+			if !ok && len(bs) == 0 {
 				return nil
+			}
+			if len(bs) == 0 {
+				continue
 			}
 			if _, err := c.Write(bs); err != nil {
 				log.Println(err)
@@ -58,7 +61,7 @@ func runReplay(cmd *cli.Command, args []string) error {
 					return nil
 				}
 			}
-			count, bytes = count+1, bytes+uint64(len(bs))
+			count, size = count+1, size+uint64(len(bs))
 		case <-sig:
 			return nil
 		}
@@ -69,7 +72,8 @@ func runReplay(cmd *cli.Command, args []string) error {
 type replay struct {
 	net.Conn
 
-	limiter *rate.Limiter
+	// limiter *rate.Limiter
+	inner io.Writer
 
 	size    int
 	counter uint16
@@ -87,7 +91,7 @@ func Replay(a string, s, t, m int, z cli.Size) (net.Conn, error) {
 	}
 	r := &replay{
 		Conn:    c,
-		limiter: rate.NewLimiter(rate.Limit(z.Float()), int(z.Int())/10),
+		inner: ratelimit.Writer(c, ratelimit.NewBucketWithRate(z.Float(), z.Int())),
 		size:    s,
 		version: uint16(p)<<12 | uint16(t)<<8 | uint16(m),
 	}
@@ -98,23 +102,17 @@ func (r *replay) Write(bs []byte) (int, error) {
 	defer func() {
 		r.counter++
 	}()
-	v := r.limiter.ReserveN(time.Now(), len(bs))
-	if !v.OK() {
-		return 0, nil
-	}
-	time.Sleep(v.Delay())
-
 	return r.writePacket(bs)
 }
 
 func (r *replay) writePacket(bs []byte) (int, error) {
 	if r.size <= 0 {
-		_, err := io.Copy(r.Conn, r.preparePacketV1(bs))
+		_, err := io.Copy(r.inner, r.preparePacketV1(bs))
 		return len(bs), err
 	}
 	for _, w := range r.preparePacketV2(bs) {
 		var total int
-		if c, err := io.Copy(r.Conn, w); err != nil {
+		if c, err := io.Copy(r.inner, w); err != nil {
 			return total + int(c), err
 		} else {
 			total += int(c)
@@ -212,14 +210,18 @@ func walk(d string) (<-chan []byte, error) {
 }
 
 func scanVMUPackets(bs []byte, ateof bool) (int, []byte, error) {
+	if ateof {
+		return len(bs), bs, bufio.ErrFinalToken
+	}
 	if len(bs) < 4 {
 		return 0, nil, nil
 	}
-	s := int(binary.LittleEndian.Uint32(bs[:4]) + 4)
-	if s >= len(bs) {
+	size := int(binary.LittleEndian.Uint32(bs))
+
+	if len(bs) < size+4 {
 		return 0, nil, nil
 	}
-	vs := make([]byte, s-panda.HRDPHeaderLength-panda.HRDLSyncLength-4)
+	vs := make([]byte, size-panda.HRDPHeaderLength-panda.HRDLSyncLength)
 	copy(vs, bs[4+panda.HRDPHeaderLength+panda.HRDLSyncLength:])
-	return s, vs, nil
+	return size+4, vs, nil
 }
