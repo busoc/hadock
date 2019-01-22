@@ -10,6 +10,7 @@ import (
 	"net"
 	"os"
 	"plugin"
+	"sync/atomic"
 	"time"
 
 	"github.com/busoc/hadock"
@@ -113,18 +114,19 @@ func runListen(cmd *cli.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	queue := make(chan *hadock.Item, 1024)
+	queue := make(chan *hadock.Item, int(c.Buffer))
 	defer close(queue)
 	go func() {
+		logger := log.New(os.Stderr, "[plugin] ", 0)
 		for i := range queue {
 			if err := ms.Process(uint8(i.Instance), i.HRPacket); err != nil {
-				log.Printf("plugin: %s", err)
+				logger.Println(err)
 			}
 		}
 	}()
 
 	age := time.Second * time.Duration(c.Age)
-	for i := range Convert(ps) {
+	for i := range Convert(ps, int(c.Buffer)) {
 		if err := fs.Store(uint8(i.Instance), i.HRPacket); err != nil {
 			log.Printf("storing VMU packet %s failed: %s", i.HRPacket.Filename(), err)
 		}
@@ -139,8 +141,35 @@ func runListen(cmd *cli.Command, args []string) error {
 	return nil
 }
 
-func Convert(ps <-chan *hadock.Packet) <-chan *hadock.Item {
-	q := make(chan *hadock.Item, 1024)
+func Convert(ps <-chan *hadock.Packet, n int) <-chan *hadock.Item {
+	q := make(chan *hadock.Item, n)
+	var (
+		total   int64
+		image   int64
+		science int64
+		skipped int64
+		errors  int64
+		size    int64
+	)
+	go func() {
+		logger := log.New(os.Stderr, "[hdk] ", 0)
+		tick := time.Tick(time.Second)
+		for range tick {
+			t := atomic.LoadInt64(&total)
+			s := atomic.LoadInt64(&skipped)
+			e := atomic.LoadInt64(&errors)
+			if t > 0 || s > 0 || e > 0 {
+				logger.Printf("%6d total, %6d images, %6d sciences, %6d skipped, %6d errors, %7dKB", t, atomic.LoadInt64(&image), atomic.LoadInt64(&science), s, e, atomic.LoadInt64(&size)>>10)
+				atomic.StoreInt64(&size, 0)
+				atomic.StoreInt64(&image, 0)
+				atomic.StoreInt64(&science, 0)
+				atomic.StoreInt64(&skipped, 0)
+				atomic.StoreInt64(&errors, 0)
+				atomic.StoreInt64(&total, 0)
+			}
+			// size, image, science, skipped, errors = 0, 0, 0, 0, 0
+		}
+	}()
 	go func() {
 		ds := make(map[int]panda.Decoder)
 		for _, v := range []int{panda.VMUProtocol1, panda.VMUProtocol2} {
@@ -152,54 +181,41 @@ func Convert(ps <-chan *hadock.Packet) <-chan *hadock.Item {
 		}
 
 		defer close(q)
-		tick := time.Tick(time.Second)
-		var (
-			image   int
-			science int
-			dropped int
-			errors  int
-			size    int
-		)
-		logger := log.New(os.Stderr, "[hdk] ", 0)
+		logger := log.New(os.Stderr, "[error] ", 0)
 		for p := range ps {
 			d, ok := ds[int(p.Version)]
 			if !ok {
 				errors++
-				log.Printf("no decoder available for version %d", p.Version)
+				atomic.AddInt64(&errors, 1)
+				logger.Printf("no decoder available for version %d", p.Version)
 				continue
 			}
 			_, v, err := d.Decode(p.Payload)
 			if err != nil {
-				errors++
-				log.Printf("decoding VMU packet failed: %s", err)
+				atomic.AddInt64(&errors, 1)
+				logger.Printf("decoding VMU packet failed: %s", err)
 				continue
 			}
 			var hr panda.HRPacket
 			switch v.(type) {
 			case *panda.Table:
-				science++
+				atomic.AddInt64(&science, 1)
 				hr = v.(panda.HRPacket)
 			case *panda.Image:
-				image++
+				atomic.AddInt64(&image, 1)
 				hr = v.(panda.HRPacket)
 			default:
-				dropped++
-				log.Println("unknown packet type - skipping")
+				atomic.AddInt64(&errors, 1)
+				logger.Println("unknown packet type - skipping")
 				continue
 			}
 			select {
 			case q <- &hadock.Item{int32(p.Instance), hr}:
-				size += len(p.Payload)
+				atomic.AddInt64(&total, 1)
+				atomic.AddInt64(&size, int64(len(p.Payload)))
 			default:
-				dropped++
+				atomic.AddInt64(&skipped, 1)
 			}
-			select {
-			case <-tick:
-				logger.Printf("%6d images, %6d sciences, %6d dropped, %6d errors, %7dKB", image, science, dropped, errors, size>>10)
-				size, image, science, dropped, errors = 0, 0, 0, 0, 0
-			default:
-			}
-
 		}
 	}()
 	return q
