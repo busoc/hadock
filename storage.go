@@ -7,11 +7,9 @@ import (
 	"fmt"
 	"io"
 	"io/ioutil"
-	"net/http"
-	"net/url"
 	"os"
 	"path"
-	"strconv"
+	"strings"
 	"time"
 
 	"github.com/busoc/panda"
@@ -20,6 +18,21 @@ import (
 const (
 	BAD = ".bad"
 	XML = ".xml"
+)
+
+const (
+	LevelClassic  = "classic" // instance+type+mode+source
+	LevelUPI      = "upi"
+	LevelSource   = "source"
+	LevelInstance = "instance" // OPS, SIM1, SIM2, TEST
+	LevelType     = "type"     // images, sciences
+	LevelMode     = "mode"     // realtime, playback
+	LevelYear     = "year"
+	LevelDay      = "doy"
+	LevelHour     = "hour"
+	LevelMin      = "minute"
+	LevelVMUTime  = "vmu" // vmu: year+doy+hour+min
+	LevelACQTime  = "acq" // acq: year+doy+hour+min
 )
 
 type Storage interface {
@@ -35,15 +48,30 @@ func Multistore(s ...Storage) Storage {
 	return &multistore{ms}
 }
 
-func NewLocalStorage(d, h string, g int, raw, rem bool) (Storage, error) {
-	i, err := os.Stat(d)
+func NewLocalStorage(d, s *Archiver, g int, raw, rem bool) (Storage, error) {
+	if d == nil {
+		return nil, fmt.Errorf("data location not provided")
+	}
+	i, err := os.Stat(d.Base)
 	if err != nil {
 		return nil, err
 	}
 	if !i.IsDir() {
 		return nil, fmt.Errorf("%s: not a directory", d)
 	}
-	f := &filestore{datadir: d, harddir: h, granul: g, remove: rem}
+	d.Interval = g
+	if s != nil {
+		i, err := os.Stat(s.Base)
+		if err != nil {
+			return nil, err
+		}
+		if !i.IsDir() {
+			return nil, fmt.Errorf("%s: not a directory", d)
+		}
+		s.Interval = g
+	}
+
+	f := &filestore{data: d, share: s, remove: rem}
 	if raw {
 		f.encode = encodeRawPacket
 	} else {
@@ -54,205 +82,237 @@ func NewLocalStorage(d, h string, g int, raw, rem bool) (Storage, error) {
 	return f, nil
 }
 
-func NewHTTPStorage(d string, g int) (Storage, error) {
-	u, err := url.Parse(d)
-	if err != nil {
-		return nil, err
-	}
-	if u.Scheme != "http" || u.Scheme != "https" {
-		return nil, fmt.Errorf("%s: not a valid url", d)
-	}
-	return &httpstore{*u, g}, nil
-}
-
 type filestore struct {
-	datadir, harddir string
-	granul           int
-	remove           bool
-	encode           func(io.Writer, panda.HRPacket) error
-}
-
-func (f *filestore) mkdirall(dir string, i uint8, p panda.HRPacket, isHardLink bool) (string, error) {
-	dir, err := joinPath(dir, p, i, f.granul, isHardLink)
-	if err != nil {
-		return "", err
-	}
-	if err := os.MkdirAll(dir, 0755); err != nil && !os.IsExist(err) {
-		return "", err
-	}
-	return dir, nil
+	data   *Archiver
+	share  *Archiver
+	remove bool
+	encode func(io.Writer, panda.HRPacket) error
 }
 
 func (f *filestore) Store(i uint8, p panda.HRPacket) error {
-	w := new(bytes.Buffer)
+	var w bytes.Buffer
 	filename := p.Filename()
 	badname := filename + BAD
-	if err := f.encode(w, p); err != nil {
+	if err := f.encode(&w, p); err != nil {
 		return fmt.Errorf("%s not written: %s", filename, err)
 	}
-	dir, err := f.mkdirall(f.datadir, i, p, false)
+	dir, err := f.data.Prepare(i, p)
 	if err != nil {
 		return err
 	}
 	if f.remove {
 		os.Remove(path.Join(dir, badname))
 	}
-	if err := ioutil.WriteFile(path.Join(dir, filename), w.Bytes(), 0644); err != nil {
+	file := path.Join(dir, filename)
+	if err := ioutil.WriteFile(file, w.Bytes(), 0644); err != nil {
 		return err
 	}
-	if n, err := os.Stat(f.harddir); err == nil && n.IsDir() {
-		hard, err := f.mkdirall(f.harddir, i, p, true)
-		if err != nil {
-			return err
-		}
-		os.Remove(path.Join(hard, filename))
-		if f.remove {
-			os.Remove(path.Join(hard, badname))
-		}
-		if err := os.Link(path.Join(dir, filename), path.Join(hard, filename)); err != nil {
-			return err
-		}
+	if err := f.linkToShare(file, i, p); err != nil {
+		return err
 	}
 	if p, ok := p.(*panda.Image); ok {
-		w := new(bytes.Buffer)
-		e := xml.NewEncoder(w)
-		e.Indent("", "\t")
-
-		m := struct {
-			XMLName xml.Name  `xml:"metadata"`
-			Version int       `xml:"mark,attr"`
-			When    time.Time `xml:"vmu,attr"`
-			IDH     interface{}
-		}{
-			Version: p.Version(),
-			When:    p.VMUHeader.Timestamp(),
-			IDH:     p.IDH,
-		}
-		if err := e.Encode(m); err != nil {
-			return err
-		}
-		if w.Len() == 0 {
-			return nil
-		}
-		filename += XML
-		badname += XML
-		if f.remove {
-			os.Remove(path.Join(dir, badname))
-		}
-		if err := ioutil.WriteFile(path.Join(dir, filename), w.Bytes(), 0644); err != nil {
-			return err
-		}
-		if s, err := os.Stat(f.harddir); err == nil && s.IsDir() {
-			hard, err := f.mkdirall(f.harddir, i, p, true)
-			if err != nil {
-				return err
-			}
-			os.Remove(path.Join(hard, filename))
-			if f.remove {
-				os.Remove(path.Join(hard, badname))
-			}
-			if err := os.Link(path.Join(dir, filename), path.Join(hard, filename)); err != nil {
-				return err
-			}
-		}
+		return f.writeMetadata(dir, i, p)
 	}
 	return nil
 }
 
-type httpstore struct {
-	location url.URL
-	granul   int
+func (f *filestore) writeMetadata(dir string, i uint8, p *panda.Image) error {
+	var w bytes.Buffer
+
+	e := xml.NewEncoder(&w)
+	e.Indent("", "\t")
+
+	m := struct {
+		XMLName xml.Name  `xml:"metadata"`
+		Version int       `xml:"mark,attr"`
+		When    time.Time `xml:"vmu,attr"`
+		IDH     interface{}
+	}{
+		Version: p.Version(),
+		When:    p.VMUHeader.Timestamp(),
+		IDH:     p.IDH,
+	}
+	if err := e.Encode(m); err != nil {
+		return err
+	}
+	if w.Len() == 0 {
+		return nil
+	}
+
+	filename := p.Filename()
+	badname := filename + BAD + XML
+	if f.remove {
+		os.Remove(path.Join(dir, badname))
+	}
+	file := path.Join(dir, filename)
+	if err := ioutil.WriteFile(file, w.Bytes(), 0644); err != nil {
+		return err
+	}
+	return f.linkToShare(file, i, p)
 }
 
-func (h *httpstore) Store(i uint8, p panda.HRPacket) error {
-	var err error
-	u := h.location
-	u.Path, err = joinPath(u.Path, p, i, h.granul, false)
+func (f *filestore) linkToShare(link string, i uint8, p panda.HRPacket) error {
+	if f.share == nil {
+		return nil
+	}
+	dir, err := f.share.Prepare(i, p)
 	if err != nil {
 		return err
 	}
-	w := new(bytes.Buffer)
-	if err := p.Export(w, ""); err != nil {
-		return err
+	filename := path.Base(link)
+	badname := filename + BAD
+
+	os.Remove(path.Join(dir, filename))
+	if f.remove {
+		os.Remove(path.Join(dir, badname))
 	}
-	rs, err := http.Post(u.String(), "application/octet-stream", w)
-	if err != nil {
-		return err
-	}
-	if rs.StatusCode >= http.StatusBadRequest {
-		return fmt.Errorf(http.StatusText(rs.StatusCode))
-	}
-	return nil
+	return os.Link(link, path.Join(dir, filename))
 }
 
-type hrdpstore struct {
-	datadir  string
-	payload  uint8
-	syncword uint32
-	channels []panda.Channel
-	instance uint8  //OPS, TEST, SIM1, SIM2
-	mode     string //realtime, playback
-
-	buf *bytes.Buffer
+type Archiver struct {
+	Levels   []string `toml:"levels"`
+	Base     string   `toml:"location"`
+	Time     string   `toml:"time"`
+	Interval int      `toml:"-"`
 }
 
-func NewHRDPStorage(d string, id uint8) (Storage, error) {
-	i, err := os.Stat(d)
-	if err != nil {
-		return nil, err
+func (a Archiver) Prepare(i uint8, p panda.HRPacket) (string, error) {
+	var t time.Time
+	switch strings.ToLower(a.Time) {
+	case "vmu", "":
+		t = getVMUTime(p)
+	case "acq":
+		t = getACQTime(p)
+	default:
 	}
-	if !i.IsDir() {
-		return nil, fmt.Errorf("%s: not a directory", d)
+	if t.IsZero() {
+		t = p.Timestamp()
 	}
-	return &hrdpstore{datadir: d, payload: id, syncword: Preamble, buf: new(bytes.Buffer)}, nil
+	base := prepareDirectory(a.Base, a.Levels, a.Interval, i, p, t)
+	if err := os.MkdirAll(base, 0755); err != nil && !os.IsExist(err) {
+		return "", err
+	}
+	return base, nil
 }
 
-func (h *hrdpstore) Store(i uint8, p panda.HRPacket) error {
-	w := new(bytes.Buffer)
-	o, _ := strconv.ParseUint(p.Origin(), 0, 8)
+func prepareDirectory(base string, levels []string, g int, i uint8, p panda.HRPacket, t time.Time) string {
+	for _, n := range levels {
+		switch strings.ToLower(n) {
+		default:
+			base = path.Join(base, n)
+		case LevelClassic:
+			ns := []string{LevelInstance, LevelType, LevelMode, LevelSource}
+			base = prepareDirectory(base, ns, g, i, p, t)
+		case LevelUPI:
+			base = path.Join(base, getUPI(p))
+		case LevelInstance:
+			base = instanceDir(base, i)
+		case LevelType:
+			base = typeDir(base, p)
+		case LevelMode:
+			base = modeDir(base, p)
+		case LevelSource:
+			base = path.Join(base, p.Origin())
+		case LevelYear:
+			base = path.Join(base, fmt.Sprintf("%04d", t.Year()))
+		case LevelDay:
+			base = path.Join(base, fmt.Sprintf("%03d", t.YearDay()))
+		case LevelHour:
+			base = path.Join(base, fmt.Sprintf("%02d", t.Hour()))
+		case LevelMin:
+			if m := t.Truncate(time.Second * time.Duration(g)); g > 0 {
+				base = path.Join(base, fmt.Sprintf("%02d", m.Minute()))
+			}
+		case LevelVMUTime:
+			ns := []string{LevelYear, LevelDay, LevelHour, LevelMin}
+			base = prepareDirectory(base, ns, g, i, p, getVMUTime(p))
+		case LevelACQTime:
+			ns := []string{LevelYear, LevelDay, LevelHour, LevelMin}
+			base = prepareDirectory(base, ns, g, i, p, getACQTime(p))
+		}
+	}
+	return base
+}
 
-	var v *panda.VMUHeader
+func getVMUTime(p panda.HRPacket) time.Time {
+	var t time.Time
 	switch p := p.(type) {
 	case *panda.Table:
-		v = p.VMUHeader
+		t = p.VMUHeader.Timestamp()
 	case *panda.Image:
-		v = p.VMUHeader
+		t = p.VMUHeader.Timestamp()
 	}
-	now, gen := time.Now(), v.Timestamp()
-	if t := gen.Truncate(time.Minute * 5); t.Minute()%5 == 0 {
-		n := fmt.Sprintf("rt_%02d_%02d.dat", t.Minute()-5, t.Minute()-1)
-		bs := h.buf.Bytes()
-		h.buf.Reset()
-		p, _ := joinPathHRDP(h.datadir, t, i)
-		if err := os.MkdirAll(p, 0755); err != nil {
-			return err
-		}
-		if err := ioutil.WriteFile(path.Join(p, n), bs, 0644); err != nil {
-			return err
-		}
-	}
+	return panda.AdjustGenerationTime(t.Unix())
+}
 
-	bs, err := p.Bytes()
-	if err != nil {
-		return err
-	}
-	length := panda.HRDPHeaderLength + panda.HRDLSyncLength
-	binary.Write(w, binary.LittleEndian, uint32(length+len(bs)))
-	binary.Write(w, binary.LittleEndian, uint16(0))
-	binary.Write(w, binary.LittleEndian, h.payload)
-	binary.Write(w, binary.LittleEndian, uint8(o))
-	binary.Write(w, binary.LittleEndian, gen.Unix())
-	binary.Write(w, binary.LittleEndian, uint8(0))
-	binary.Write(w, binary.LittleEndian, now.Unix())
-	binary.Write(w, binary.LittleEndian, uint8(0))
-	binary.Write(w, binary.BigEndian, h.syncword)
-	binary.Write(w, binary.BigEndian, uint32(len(bs)))
-	w.Write(bs)
+func getACQTime(p panda.HRPacket) time.Time {
+	return p.Timestamp()
+}
 
-	if _, err := io.Copy(h.buf, w); err != nil {
-		return err
+func getUPI(p panda.HRPacket) string {
+	trim := func(bs []byte) string {
+		if bs := bytes.Trim(bs, "\x00"); len(bs) > 0 {
+			return strings.Replace(string(bs), " ", "-", -1)
+		}
+		return ""
 	}
-	return nil
+	var upi, u string
+	switch p := p.(type) {
+	case *panda.Table:
+		upi = "SCIENCES"
+		switch v := p.SDH.(type) {
+		case *panda.SDHv1:
+		case *panda.SDHv2:
+			u = trim(v.Info[:])
+		}
+	case *panda.Image:
+		upi = "IMAGES"
+		switch v := p.IDH.(type) {
+		case *panda.IDHv1:
+			u = trim(v.Info[:])
+		case *panda.IDHv2:
+			u = trim(v.Info[:])
+		}
+	}
+	if len(u) > 0 {
+		upi = u
+	}
+	return upi
+}
+
+func modeDir(base string, p panda.HRPacket) string {
+	if p.IsRealtime() {
+		base = path.Join(base, "realtime")
+	} else {
+		base = path.Join(base, "playback")
+	}
+	return base
+}
+
+func typeDir(base string, p panda.HRPacket) string {
+	switch p.(type) {
+	case *panda.Table:
+		base = path.Join(base, "sciences")
+	case *panda.Image:
+		base = path.Join(base, "images")
+	default:
+		base = path.Join(base, "unknown")
+	}
+	return base
+}
+
+func instanceDir(base string, i uint8) string {
+	switch i {
+	case TEST:
+		base = path.Join(base, "TEST")
+	case SIM1, SIM2:
+		base = path.Join(base, "SIM"+fmt.Sprint(i))
+	case OPS:
+		base = path.Join(base, "OPS")
+	default:
+		base = path.Join(base, "DATA-"+fmt.Sprint(i))
+	}
+	return base
 }
 
 type multistore struct {
@@ -310,62 +370,4 @@ func encodeRawPacket(w io.Writer, p panda.HRPacket) error {
 		_, err = io.Copy(w, r)
 	}
 	return err
-}
-
-func joinPath(base string, v panda.HRPacket, i uint8, g int, a bool) (string, error) {
-	switch i {
-	case TEST:
-		base = path.Join(base, "TEST")
-	case SIM1, SIM2:
-		base = path.Join(base, "SIM"+fmt.Sprint(i))
-	case OPS:
-		base = path.Join(base, "OPS")
-	default:
-		base = path.Join(base, "DATA")
-	}
-	var t time.Time
-	switch v := v.(type) {
-	case *panda.Table:
-		base, t = path.Join(base, "sciences"), v.VMUHeader.Timestamp()
-	case *panda.Image:
-		base, t = path.Join(base, "images"), v.VMUHeader.Timestamp()
-	}
-	if v.IsRealtime() {
-		base = path.Join(base, "realtime", v.Origin())
-	} else {
-		base = path.Join(base, "playback", v.Origin())
-	}
-	if t.IsZero() || a {
-		t = v.Timestamp()
-	}
-
-	return joinPathTime(base, t, g, a), nil
-}
-
-func joinPathHRDP(base string, t time.Time, i uint8) (string, error) {
-	switch i {
-	case TEST:
-		base = path.Join(base, "TEST")
-	case SIM1, SIM2:
-		base = path.Join(base, "SIM"+fmt.Sprint(i))
-	case OPS:
-		base = path.Join(base, "OPS")
-	default:
-		base = path.Join(base, "DATA")
-	}
-	return joinPathTime(base, t, 0, false), nil
-}
-
-func joinPathTime(base string, t time.Time, g int, a bool) string {
-	if !a {
-		t = panda.AdjustGenerationTime(t.Unix())
-	}
-	y := fmt.Sprintf("%04d", t.Year())
-	d := fmt.Sprintf("%03d", t.YearDay())
-	h := fmt.Sprintf("%02d", t.Hour())
-	base = path.Join(base, y, d, h)
-	if m := t.Truncate(time.Second * time.Duration(g)); g > 0 {
-		base = path.Join(base, fmt.Sprintf("%02d", m.Minute()))
-	}
-	return base
 }

@@ -25,7 +25,7 @@ Use {{.Name}} [command] -h for more information about its usage.
 
 var commands = []*cli.Command{
 	{
-		Usage: "replay [-r] [-s] [-m] [-t] <host:port> <archive,...",
+		Usage: "replay [-r] [-s] [-m] [-t] <host:port> <archive...>",
 		Short: "send VMU packets throught the network from a HRDP archive",
 		Run:   runReplay,
 	},
@@ -47,8 +47,8 @@ var commands = []*cli.Command{
 }
 
 func init() {
-	cli.Version = "0.4.2"
-	cli.BuildTime = "2019-01-22 07:45:00"
+	cli.Version = "0.5.0"
+	cli.BuildTime = "2019-01-28 11:30:00"
 }
 
 func main() {

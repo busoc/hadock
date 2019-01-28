@@ -19,37 +19,9 @@ import (
 	"github.com/midbel/toml"
 )
 
-type module struct {
-	Location string   `json:"location"`
-	Config   []string `json:"config"`
-}
-
-type storer struct {
-	Disabled    bool   `toml:"disabled"`
-	Scheme      string `toml:"type"`
-	Location    string `toml:"location"`
-	Hard        string `toml:"link"`
-	Raw         bool   `toml:"raw"`
-	Remove      bool   `toml:"remove"`
-	Granularity uint   `toml:"interval"`
-}
-
 type proxy struct {
 	Addr  string `toml:"address"`
 	Level string `toml:"level"`
-}
-
-type pool struct {
-	Interval  uint       `toml:"interval"`
-	Notifiers []notifier `toml:"notifiers"`
-}
-
-type notifier struct {
-	Scheme   string          `toml:"type"`
-	Location string          `toml:"location"`
-	Source   string          `toml:"source"`
-	Instance int32           `toml:"instance"`
-	Channels []panda.Channel `toml:"channels"`
 }
 
 type decodeFunc func(io.Reader, []uint8) <-chan *hadock.Packet
@@ -262,6 +234,11 @@ func ListenPackets(a string, size int, p proxy, decode decodeFunc, is []uint8) (
 	return q, nil
 }
 
+type module struct {
+	Location string   `json:"location"`
+	Config   []string `json:"config"`
+}
+
 func setupModules(ms []module) (hadock.Module, error) {
 	var ps []hadock.Module
 	for _, m := range ms {
@@ -293,6 +270,19 @@ func setupModules(ms []module) (hadock.Module, error) {
 		}
 	}
 	return hadock.Process(ps), nil
+}
+
+type pool struct {
+	Interval  uint       `toml:"interval"`
+	Notifiers []notifier `toml:"notifiers"`
+}
+
+type notifier struct {
+	Scheme   string          `toml:"type"`
+	Location string          `toml:"location"`
+	Source   string          `toml:"source"`
+	Instance int32           `toml:"instance"`
+	Channels []panda.Channel `toml:"channels"`
 }
 
 func setupPool(p pool) (*hadock.Pool, error) {
@@ -338,6 +328,16 @@ func setupPool(p pool) (*hadock.Pool, error) {
 	return hadock.NewPool(ns, delay), nil
 }
 
+type storer struct {
+	Disabled    bool             `toml:"disabled"`
+	Scheme      string           `toml:"type"`
+	Data        *hadock.Archiver `toml:"data"`
+	Share       *hadock.Archiver `toml:"share"`
+	Raw         bool             `toml:"raw"`
+	Remove      bool             `toml:"remove"`
+	Granularity uint             `toml:"interval"`
+}
+
 func setupStorage(vs []storer) (hadock.Storage, error) {
 	if len(vs) == 0 {
 		return nil, fmt.Errorf("no storage defined! abort")
@@ -353,24 +353,24 @@ func setupStorage(vs []storer) (hadock.Storage, error) {
 		)
 		switch v.Scheme {
 		default:
-			continue
+			err = fmt.Errorf("%s: unrecognized storage type", v.Scheme)
 		case "file":
-			if err = os.MkdirAll(v.Location, 0755); err != nil {
-				log.Println("storage, fail to create primary directory: %s => %s", v.Location, err)
+			if v.Data == nil {
+				return nil, fmt.Errorf("no primary storage defined")
+			}
+			if err = os.MkdirAll(v.Data.Base, 0755); v.Data.Base != "" && err != nil {
+				log.Printf("storage: fail to create data directory: %s => %s", v.Data.Base, err)
 				break
 			}
-			if err = os.MkdirAll(v.Hard, 0755); v.Hard != "" && err != nil {
-				log.Println("storage, fail to create secondary directory: %s => %s", v.Hard, err)
-				break
+			if v.Share != nil {
+				if err = os.MkdirAll(v.Share.Base, 0755); v.Share.Base != "" && err != nil {
+					log.Printf("storage: fail to create secondary directory: %s => %s", v.Share.Base, err)
+					break
+				}
 			}
-			s, err = hadock.NewLocalStorage(v.Location, v.Hard, int(v.Granularity), v.Raw, v.Remove)
-		case "http":
-			s, err = hadock.NewHTTPStorage(v.Location, int(v.Granularity))
-		case "hrdp":
-			if err = os.MkdirAll(v.Location, 0755); err != nil {
-				break
-			}
-			s, err = hadock.NewHRDPStorage(v.Location, 2)
+			s, err = hadock.NewLocalStorage(v.Data, v.Share, int(v.Granularity), v.Raw, v.Remove)
+		case "http", "hrdp":
+			err = fmt.Errorf("%s: storage not supported anymore", v.Scheme)
 		}
 		if err != nil {
 			return nil, err
