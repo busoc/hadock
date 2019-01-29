@@ -13,6 +13,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"golang.org/x/sync/errgroup"
 	"github.com/busoc/hadock"
 	"github.com/busoc/panda"
 	"github.com/midbel/cli"
@@ -98,19 +99,25 @@ func runListen(cmd *cli.Command, args []string) error {
 	}()
 
 	age := time.Second * time.Duration(c.Age)
+
+	var grp errgroup.Group
 	for i := range Convert(ps, int(c.Buffer)) {
-		if err := fs.Store(uint8(i.Instance), i.HRPacket); err != nil {
-			log.Printf("storing VMU packet %s failed: %s", i.HRPacket.Filename(), err)
-		}
-		if age == 0 || time.Since(i.Timestamp()) <= age {
-			pool.Notify(i)
-		}
-		select {
-		case queue <- i:
-		default:
-		}
+		i := i
+		grp.Go(func() error {
+			if err := fs.Store(uint8(i.Instance), i.HRPacket); err != nil {
+				log.Printf("storing VMU packet %s failed: %s", i.HRPacket.Filename(), err)
+			}
+			if age == 0 || time.Since(i.Timestamp()) <= age {
+				pool.Notify(i)
+			}
+			select {
+			case queue <- i:
+			default:
+			}
+			return nil
+		})
 	}
-	return nil
+	return grp.Wait()
 }
 
 func Convert(ps <-chan *hadock.Packet, n int) <-chan *hadock.Item {
@@ -215,6 +222,7 @@ func ListenPackets(a string, size int, p proxy, decode decodeFunc, is []uint8) (
 			if c, ok := c.(*net.TCPConn); ok {
 				c.SetKeepAlive(true)
 				c.SetKeepAlivePeriod(time.Second * 90)
+				c.SetReadBuffer(8<<20)
 			}
 			go func(c net.Conn) {
 				defer c.Close()
