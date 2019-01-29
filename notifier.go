@@ -88,7 +88,10 @@ func NewPool(ns []Notifier, e time.Duration) *Pool {
 }
 
 func (p *Pool) Notify(i *Item) {
-	p.queue <- i
+	select {
+	case p.queue <- i:
+	default:
+	}
 }
 
 func (p *Pool) notify(e time.Duration) {
