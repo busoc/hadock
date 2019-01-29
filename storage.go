@@ -59,6 +59,7 @@ func NewLocalStorage(d, s *Archiver, g int, raw, rem bool) (Storage, error) {
 	if !i.IsDir() {
 		return nil, fmt.Errorf("%s: not a directory", d)
 	}
+	d.Levels = checkLevels(d.Levels, []string{LevelClassic, LevelVMUTime})
 	d.Interval = g
 	if s != nil {
 		i, err := os.Stat(s.Base)
@@ -68,6 +69,7 @@ func NewLocalStorage(d, s *Archiver, g int, raw, rem bool) (Storage, error) {
 		if !i.IsDir() {
 			return nil, fmt.Errorf("%s: not a directory", d)
 		}
+		s.Levels = checkLevels(s.Levels, []string{LevelClassic, LevelACQTime})
 		s.Interval = g
 	}
 
@@ -80,6 +82,20 @@ func NewLocalStorage(d, s *Archiver, g int, raw, rem bool) (Storage, error) {
 		}
 	}
 	return f, nil
+}
+
+func checkLevels(ls, ds []string) []string {
+	var vs []string
+	for i := range ls {
+		if ls[i] == "" {
+			continue
+		}
+		vs = append(vs, ls[i])
+	}
+	if len(vs) == 0 {
+		vs = ds
+	}
+	return vs
 }
 
 type filestore struct {
