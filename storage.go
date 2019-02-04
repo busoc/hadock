@@ -116,7 +116,7 @@ func (f *filestore) Store(i uint8, p panda.HRPacket) error {
 	if err != nil {
 		return err
 	}
-	if f.remove {
+	if !p.IsRealtime() && f.remove {
 		os.Remove(path.Join(dir, badname))
 	}
 	file := path.Join(dir, filename)
@@ -157,7 +157,7 @@ func (f *filestore) writeMetadata(dir string, i uint8, p *panda.Image) error {
 
 	filename := p.Filename() + XML
 	badname := filename + BAD
-	if f.remove {
+	if !p.IsRealtime() && f.remove {
 		os.Remove(path.Join(dir, badname))
 	}
 	file := path.Join(dir, filename)
@@ -179,7 +179,7 @@ func (f *filestore) linkToShare(link string, i uint8, p panda.HRPacket) error {
 	badname := filename + BAD
 
 	os.Remove(path.Join(dir, filename))
-	if f.remove {
+	if !p.IsRealtime() && f.remove {
 		os.Remove(path.Join(dir, badname))
 	}
 	return os.Link(link, path.Join(dir, filename))
