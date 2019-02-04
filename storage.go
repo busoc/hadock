@@ -155,8 +155,8 @@ func (f *filestore) writeMetadata(dir string, i uint8, p *panda.Image) error {
 		return nil
 	}
 
-	filename := p.Filename()
-	badname := filename + BAD + XML
+	filename := p.Filename() + XML
+	badname := filename + BAD
 	if f.remove {
 		os.Remove(path.Join(dir, badname))
 	}
