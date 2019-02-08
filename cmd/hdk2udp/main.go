@@ -9,10 +9,10 @@ import (
 	"log"
 	"net"
 	"os"
+	"path"
 	"strings"
 	"sync"
 	"time"
-	"path"
 
 	"github.com/busoc/hadock"
 	"github.com/busoc/hadock/cmd/hdk2udp/internal/pvalue"
@@ -86,10 +86,10 @@ type channel struct {
 	Name   string  `toml:"namespace"`
 	Groups []group `toml:"groups"`
 
-	Prefix string  `toml:"prefix"`
-	Time   string `toml:"time"`
-	Interval int `toml:"interval"`
-	Levels []string `toml:"levels"`
+	Prefix   string   `toml:"prefix"`
+	Time     string   `toml:"time"`
+	Interval int      `toml:"interval"`
+	Levels   []string `toml:"levels"`
 }
 
 func (c channel) Run() error {
@@ -408,7 +408,7 @@ func decodeMessage(r io.Reader) (*hadock.Message, error) {
 	binary.Read(r, binary.BigEndian, &m.Count)
 	binary.Read(r, binary.BigEndian, &m.Elapsed)
 	binary.Read(r, binary.BigEndian, &m.Generated) // VMU timestamp
-	binary.Read(r, binary.BigEndian, &m.Acquired) // HRD timestamp
+	binary.Read(r, binary.BigEndian, &m.Acquired)  // HRD timestamp
 	m.Reference, _ = readString(r)
 	m.UPI, _ = readString(r)
 

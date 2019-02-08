@@ -166,7 +166,7 @@ func (p *Pool) notify(e time.Duration) {
 
 func extractUserInfo(p panda.HRPacket) string {
 	var (
-		bs [32]byte
+		bs  [32]byte
 		alt string
 	)
 	switch v := p.(type) {

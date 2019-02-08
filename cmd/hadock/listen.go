@@ -13,12 +13,12 @@ import (
 	// "sync/atomic"
 	"time"
 
-	"golang.org/x/sync/errgroup"
 	"github.com/busoc/hadock"
 	"github.com/busoc/hadock/storage"
 	"github.com/busoc/panda"
 	"github.com/midbel/cli"
 	"github.com/midbel/toml"
+	"golang.org/x/sync/errgroup"
 )
 
 type proxy struct {
@@ -140,7 +140,7 @@ func Convert(ps <-chan *hadock.Packet, n int) <-chan *hadock.Item {
 	)
 	go func() {
 		logger := log.New(os.Stderr, "[hdk] ", 0)
-		tick := time.Tick(time.Second*5)
+		tick := time.Tick(time.Second * 5)
 		for range tick {
 			if total > 0 || skipped > 0 || errors > 0 {
 				logger.Printf("%6d total, %6d images, %6d sciences, %6d skipped, %6d errors, %7dKB", total, image, science, skipped, errors, size>>10)
@@ -225,7 +225,7 @@ func ListenPackets(a string, size int, p proxy, decode decodeFunc, is []uint8) (
 			if c, ok := c.(*net.TCPConn); ok {
 				c.SetKeepAlive(true)
 				c.SetKeepAlivePeriod(time.Second * 90)
-				c.SetReadBuffer(8<<20)
+				c.SetReadBuffer(8 << 20)
 			}
 			go func(c net.Conn) {
 				defer c.Close()
@@ -345,13 +345,13 @@ func setupPool(p pool) (*hadock.Pool, error) {
 }
 
 type storer struct {
-	Disabled    bool             `toml:"disabled"`
-	Scheme      string           `toml:"type"`
+	Disabled    bool              `toml:"disabled"`
+	Scheme      string            `toml:"type"`
 	Data        *storage.Archiver `toml:"data"`
 	Share       *storage.Archiver `toml:"share"`
-	Raw         bool             `toml:"raw"`
-	Remove      bool             `toml:"remove"`
-	Granularity uint             `toml:"interval"`
+	Raw         bool              `toml:"raw"`
+	Remove      bool              `toml:"remove"`
+	Granularity uint              `toml:"interval"`
 }
 
 func setupStorage(vs []storer) (storage.Storage, error) {
