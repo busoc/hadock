@@ -15,6 +15,7 @@ import (
 
 	"golang.org/x/sync/errgroup"
 	"github.com/busoc/hadock"
+	"github.com/busoc/hadock/storage"
 	"github.com/busoc/panda"
 	"github.com/midbel/cli"
 	"github.com/midbel/toml"
@@ -346,29 +347,31 @@ func setupPool(p pool) (*hadock.Pool, error) {
 type storer struct {
 	Disabled    bool             `toml:"disabled"`
 	Scheme      string           `toml:"type"`
-	Data        *hadock.Archiver `toml:"data"`
-	Share       *hadock.Archiver `toml:"share"`
+	Data        *storage.Archiver `toml:"data"`
+	Share       *storage.Archiver `toml:"share"`
 	Raw         bool             `toml:"raw"`
 	Remove      bool             `toml:"remove"`
 	Granularity uint             `toml:"interval"`
 }
 
-func setupStorage(vs []storer) (hadock.Storage, error) {
+func setupStorage(vs []storer) (storage.Storage, error) {
 	if len(vs) == 0 {
 		return nil, fmt.Errorf("no storage defined! abort")
 	}
-	fs := make([]hadock.Storage, 0, len(vs))
+	fs := make([]storage.Storage, 0, len(vs))
 	for _, v := range vs {
 		if v.Disabled {
 			continue
 		}
 		var (
 			err error
-			s   hadock.Storage
+			s   storage.Storage
 		)
 		switch v.Scheme {
 		default:
 			err = fmt.Errorf("%s: unrecognized storage type", v.Scheme)
+		case "tar", "archive", "zip":
+			s, err = storage.NewArchiveStorage(v.Scheme)
 		case "file":
 			if v.Data == nil {
 				return nil, fmt.Errorf("no primary storage defined")
@@ -383,7 +386,7 @@ func setupStorage(vs []storer) (hadock.Storage, error) {
 					break
 				}
 			}
-			s, err = hadock.NewLocalStorage(v.Data, v.Share, int(v.Granularity), v.Raw, v.Remove)
+			s, err = storage.NewLocalStorage(v.Data, v.Share, int(v.Granularity), v.Raw, v.Remove)
 		case "http", "hrdp":
 			err = fmt.Errorf("%s: storage not supported anymore", v.Scheme)
 		}
@@ -392,5 +395,5 @@ func setupStorage(vs []storer) (hadock.Storage, error) {
 		}
 		fs = append(fs, s)
 	}
-	return hadock.Multistore(fs...), nil
+	return storage.Multistore(fs...), nil
 }
