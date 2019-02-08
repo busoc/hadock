@@ -10,6 +10,7 @@ import (
 	"os"
 	"path"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/busoc/panda"
@@ -61,6 +62,8 @@ func NewLocalStorage(d, s *Archiver, g int, raw, rem bool) (Storage, error) {
 	}
 	d.Levels = checkLevels(d.Levels, []string{LevelClassic, LevelVMUTime})
 	d.Interval = g
+	d.cache = make(map[string]time.Time)
+	go d.clean()
 	if s != nil {
 		i, err := os.Stat(s.Base)
 		if err != nil {
@@ -71,6 +74,9 @@ func NewLocalStorage(d, s *Archiver, g int, raw, rem bool) (Storage, error) {
 		}
 		s.Levels = checkLevels(s.Levels, []string{LevelClassic, LevelACQTime})
 		s.Interval = g
+		s.cache = make(map[string]time.Time)
+
+		go s.clean()
 	}
 
 	f := &filestore{data: d, share: s, remove: rem}
@@ -190,9 +196,26 @@ type Archiver struct {
 	Base     string   `toml:"location"`
 	Time     string   `toml:"time"`
 	Interval int      `toml:"-"`
+
+	mu sync.Mutex
+	cache map[string]time.Time
 }
 
-func (a Archiver) Prepare(i uint8, p panda.HRPacket) (string, error) {
+func (a *Archiver) clean() {
+	every := time.Tick(time.Minute)
+	five := time.Minute*5
+	for t := range every {
+		for k, v := range a.cache {
+			if t.Sub(v) >= five {
+				a.mu.Lock()
+				delete(a.cache, k)
+				a.mu.Unlock()
+			}
+		}
+	}
+}
+
+func (a *Archiver) Prepare(i uint8, p panda.HRPacket) (string, error) {
 	var t time.Time
 	switch strings.ToLower(a.Time) {
 	case "vmu", "":
@@ -205,9 +228,14 @@ func (a Archiver) Prepare(i uint8, p panda.HRPacket) (string, error) {
 		t = p.Timestamp()
 	}
 	base := prepareDirectory(a.Base, a.Levels, a.Interval, i, p, t)
-	if err := os.MkdirAll(base, 0755); err != nil && !os.IsExist(err) {
-		return "", err
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	if _, ok := a.cache[base]; !ok {
+		if err := os.MkdirAll(base, 0755); err != nil && !os.IsExist(err) {
+			return "", err
+		}
 	}
+	a.cache[base] = time.Now()
 	return base, nil
 }
 
