@@ -10,7 +10,7 @@ import (
 	"net"
 	"os"
 	"plugin"
-	"sync/atomic"
+	// "sync/atomic"
 	"time"
 
 	"golang.org/x/sync/errgroup"
@@ -41,7 +41,6 @@ func runListen(cmd *cli.Command, args []string) error {
 		Buffer    uint     `toml:"buffer"`
 		Proxy     proxy    `toml:"proxy"`
 		Instances []uint8  `toml:"instances"`
-		Age       uint     `toml:"age"`
 		Stores    []storer `toml:"storage"`
 		Pool      pool     `toml:"pool"`
 		Modules   []module `toml:"module"`
@@ -59,12 +58,55 @@ func runListen(cmd *cli.Command, args []string) error {
 	if err != nil {
 		return err
 	}
-	ms, err := setupModules(c.Modules)
+
+	df, err := Decode(c.Mode)
 	if err != nil {
 		return err
 	}
+
+	ps, err := ListenPackets(c.Addr, int(c.Buffer), c.Proxy, df, c.Instances)
+	if err != nil {
+		return err
+	}
+	var queue chan *hadock.Item
+	if len(c.Modules) > 0 {
+		ms, err := setupModules(c.Modules)
+		if err != nil {
+			return err
+		}
+		queue = make(chan *hadock.Item, int(c.Buffer))
+		defer close(queue)
+		go func() {
+			logger := log.New(os.Stderr, "[plugin] ", 0)
+			for i := range queue {
+				if err := ms.Process(uint8(i.Instance), i.HRPacket); err != nil {
+					logger.Println(err)
+				}
+			}
+		}()
+	}
+
+	var grp errgroup.Group
+	for i := range Convert(ps, int(c.Buffer)) {
+		i := i
+		grp.Go(func() error {
+			if err := fs.Store(uint8(i.Instance), i.HRPacket); err != nil {
+				log.Printf("storing VMU packet %s failed: %s", i.HRPacket.Filename(), err)
+			}
+			pool.Notify(i)
+			select {
+			case queue <- i:
+			default:
+			}
+			return nil
+		})
+	}
+	return grp.Wait()
+}
+
+func Decode(mode string) (decodeFunc, error) {
 	var df decodeFunc
-	switch c.Mode {
+	switch mode {
 	case "rfc1952", "gzip":
 		df = hadock.DecodeCompressedPackets
 	case "binary", "":
@@ -75,49 +117,14 @@ func runListen(cmd *cli.Command, args []string) error {
 				r = bufio.NewReader(r)
 			}
 			if rs, err := gzip.NewReader(r); err == nil {
-				//defer rs.Close()
 				r = rs
 			}
 			return hadock.DecodeBinaryPackets(r, is)
 		}
 	default:
-		return fmt.Errorf("unsupported working mode %s", c.Mode)
+		return nil, fmt.Errorf("unsupported working mode %s", mode)
 	}
-	ps, err := ListenPackets(c.Addr, int(c.Buffer), c.Proxy, df, c.Instances)
-	if err != nil {
-		return err
-	}
-	queue := make(chan *hadock.Item, int(c.Buffer))
-	defer close(queue)
-	go func() {
-		logger := log.New(os.Stderr, "[plugin] ", 0)
-		for i := range queue {
-			if err := ms.Process(uint8(i.Instance), i.HRPacket); err != nil {
-				logger.Println(err)
-			}
-		}
-	}()
-
-	age := time.Second * time.Duration(c.Age)
-
-	var grp errgroup.Group
-	for i := range Convert(ps, int(c.Buffer)) {
-		i := i
-		grp.Go(func() error {
-			if err := fs.Store(uint8(i.Instance), i.HRPacket); err != nil {
-				log.Printf("storing VMU packet %s failed: %s", i.HRPacket.Filename(), err)
-			}
-			if age == 0 || time.Since(i.Timestamp()) <= age {
-				pool.Notify(i)
-			}
-			select {
-			case queue <- i:
-			default:
-			}
-			return nil
-		})
-	}
-	return grp.Wait()
+	return df, nil
 }
 
 func Convert(ps <-chan *hadock.Packet, n int) <-chan *hadock.Item {
@@ -132,21 +139,17 @@ func Convert(ps <-chan *hadock.Packet, n int) <-chan *hadock.Item {
 	)
 	go func() {
 		logger := log.New(os.Stderr, "[hdk] ", 0)
-		tick := time.Tick(time.Second)
+		tick := time.Tick(time.Second*5)
 		for range tick {
-			t := atomic.LoadInt64(&total)
-			s := atomic.LoadInt64(&skipped)
-			e := atomic.LoadInt64(&errors)
-			if t > 0 || s > 0 || e > 0 {
-				logger.Printf("%6d total, %6d images, %6d sciences, %6d skipped, %6d errors, %7dKB", t, atomic.LoadInt64(&image), atomic.LoadInt64(&science), s, e, atomic.LoadInt64(&size)>>10)
-				atomic.StoreInt64(&size, 0)
-				atomic.StoreInt64(&image, 0)
-				atomic.StoreInt64(&science, 0)
-				atomic.StoreInt64(&skipped, 0)
-				atomic.StoreInt64(&errors, 0)
-				atomic.StoreInt64(&total, 0)
+			if total > 0 || skipped > 0 || errors > 0 {
+				logger.Printf("%6d total, %6d images, %6d sciences, %6d skipped, %6d errors, %7dKB", total, image, science, skipped, errors, size>>10)
+				size = 0
+				image = 0
+				science = 0
+				skipped = 0
+				errors = 0
+				total = 0
 			}
-			// size, image, science, skipped, errors = 0, 0, 0, 0, 0
 		}
 	}()
 	go func() {
@@ -165,35 +168,34 @@ func Convert(ps <-chan *hadock.Packet, n int) <-chan *hadock.Item {
 			d, ok := ds[int(p.Version)]
 			if !ok {
 				errors++
-				atomic.AddInt64(&errors, 1)
 				logger.Printf("no decoder available for version %d", p.Version)
 				continue
 			}
 			_, v, err := d.Decode(p.Payload)
 			if err != nil {
-				atomic.AddInt64(&errors, 1)
+				errors++
 				logger.Printf("decoding VMU packet failed: %s", err)
 				continue
 			}
 			var hr panda.HRPacket
 			switch v.(type) {
 			case *panda.Table:
-				atomic.AddInt64(&science, 1)
+				science++
 				hr = v.(panda.HRPacket)
 			case *panda.Image:
-				atomic.AddInt64(&image, 1)
+				image++
 				hr = v.(panda.HRPacket)
 			default:
-				atomic.AddInt64(&errors, 1)
+				errors++
 				logger.Println("unknown packet type - skipping")
 				continue
 			}
 			select {
 			case q <- &hadock.Item{int32(p.Instance), hr}:
-				atomic.AddInt64(&total, 1)
-				atomic.AddInt64(&size, int64(len(p.Payload)))
+				total++
+				size += int64(len(p.Payload))
 			default:
-				atomic.AddInt64(&skipped, 1)
+				skipped++
 			}
 		}
 	}()
@@ -248,6 +250,9 @@ type module struct {
 }
 
 func setupModules(ms []module) (hadock.Module, error) {
+	if len(ms) == 0 {
+		return nil, nil
+	}
 	var ps []hadock.Module
 	for _, m := range ms {
 		p, err := plugin.Open(m.Location)
@@ -282,6 +287,7 @@ func setupModules(ms []module) (hadock.Module, error) {
 
 type pool struct {
 	Interval  uint       `toml:"interval"`
+	Limit     uint       `toml:"age"`
 	Notifiers []notifier `toml:"notifiers"`
 }
 
@@ -295,6 +301,7 @@ type notifier struct {
 
 func setupPool(p pool) (*hadock.Pool, error) {
 	delay := time.Second * time.Duration(p.Interval)
+	age := time.Second * time.Duration(p.Limit)
 
 	ns := make([]hadock.Notifier, 0, len(p.Notifiers))
 	for _, v := range p.Notifiers {
@@ -333,7 +340,7 @@ func setupPool(p pool) (*hadock.Pool, error) {
 		}
 		ns = append(ns, n)
 	}
-	return hadock.NewPool(ns, delay), nil
+	return hadock.NewPool(ns, age, delay), nil
 }
 
 type storer struct {

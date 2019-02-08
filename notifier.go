@@ -73,21 +73,34 @@ func (o *Options) Accept(msg Message) error {
 
 type Pool struct {
 	notifiers []Notifier
+	limit     time.Duration
 	queue     chan *Item
 }
 
-func NewPool(ns []Notifier, e time.Duration) *Pool {
+func NewPool(ns []Notifier, a, e time.Duration) *Pool {
 	q := make(chan *Item, 1000)
 	ms := make([]Notifier, len(ns))
 	copy(ms, ns)
 
-	p := &Pool{ms, q}
+	p := &Pool{notifiers: ms, queue: q, limit: a}
 	go p.notify(e)
 
 	return p
 }
 
 func (p *Pool) Notify(i *Item) {
+	var t time.Time
+	switch v := i.HRPacket.(type) {
+	case *panda.Image:
+		t = v.VMUHeader.Timestamp()
+	case *panda.Table:
+		t = v.VMUHeader.Timestamp()
+	default:
+		return
+	}
+	if p.limit > 0 && time.Since(t) > p.limit {
+		return
+	}
 	select {
 	case p.queue <- i:
 	default:
@@ -152,15 +165,26 @@ func (p *Pool) notify(e time.Duration) {
 }
 
 func extractUserInfo(p panda.HRPacket) string {
-	var bs [32]byte
+	var (
+		bs [32]byte
+		alt string
+	)
 	switch v := p.(type) {
 	case *panda.Table:
+		alt = "SCIENCE"
+		if p.IsRealtime() {
+			return alt
+		}
 		s, ok := v.SDH.(*panda.SDHv2)
 		if !ok {
 			break
 		}
 		bs = s.Info
 	case *panda.Image:
+		alt = "IMAGE"
+		if p.IsRealtime() {
+			return alt
+		}
 		switch v := v.IDH.(type) {
 		case *panda.IDHv2:
 			bs = v.Info
@@ -171,7 +195,7 @@ func extractUserInfo(p panda.HRPacket) string {
 	if upi := bytes.Trim(bs[:], "\x00"); len(upi) > 0 {
 		return string(upi)
 	}
-	return ""
+	return alt
 }
 
 func NewDebuggerNotifier(w io.Writer, o *Options) (Notifier, error) {
