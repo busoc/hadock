@@ -2,7 +2,6 @@ package storage
 
 import (
 	"bytes"
-	"encoding/binary"
 	"encoding/xml"
 	"fmt"
 	"io"
@@ -145,47 +144,4 @@ func (f *filestore) linkToShare(link string, i uint8, p panda.HRPacket) error {
 		os.Remove(path.Join(dir, badname))
 	}
 	return os.Link(link, path.Join(dir, filename))
-}
-
-func encodeRawPacket(w io.Writer, p panda.HRPacket) error {
-	var err error
-	switch p := p.(type) {
-	case *panda.Table:
-		i, ok := p.SDH.(panda.Four)
-		if !ok {
-			err = p.ExportRaw(w)
-			break
-		}
-		r := new(bytes.Buffer)
-		binary.Write(r, binary.BigEndian, i.FCC())
-		binary.Write(r, binary.BigEndian, p.Sequence())
-		if s, ok := p.SDH.(*panda.SDHv2); ok {
-			binary.Write(r, binary.BigEndian, s.Acquisition)
-		} else {
-			binary.Write(r, binary.BigEndian, p.Timestamp().Unix())
-		}
-		r.Write(p.Payload())
-
-		_, err = io.Copy(w, r)
-	case *panda.Image:
-		i, ok := p.IDH.(panda.Bitmap)
-		if !ok {
-			err = p.ExportRaw(w)
-			break
-		}
-		r := new(bytes.Buffer)
-
-		binary.Write(r, binary.BigEndian, i.FCC())
-		binary.Write(r, binary.BigEndian, p.Sequence())
-		if i, ok := p.IDH.(*panda.IDHv2); ok {
-			binary.Write(r, binary.BigEndian, i.Acquisition)
-		} else {
-			binary.Write(r, binary.BigEndian, p.Timestamp().Unix())
-		}
-		binary.Write(r, binary.BigEndian, i.X())
-		binary.Write(r, binary.BigEndian, i.Y())
-		r.Write(p.Payload())
-		_, err = io.Copy(w, r)
-	}
-	return err
 }

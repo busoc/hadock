@@ -2,16 +2,64 @@ package storage
 
 import (
 	"bytes"
+	"encoding/binary"
 	"fmt"
+	"io"
 	"os"
 	"path"
+	"sort"
 	"strings"
 	"sync"
 	"time"
 
-	"github.com/busoc/panda"
 	"github.com/busoc/hadock"
+	"github.com/busoc/panda"
 )
+
+type Control struct {
+	Type   string   `toml:"type"`
+	Accept []string `toml:"accept"`
+	Reject []string `toml:"reject"`
+}
+
+func (c *Control) Can(p panda.HRPacket) bool {
+	if c == nil {
+		return true
+	}
+	var o string
+	switch c.Type {
+	case "", "channel":
+		o = p.Stream().String()
+	case "origin", "source":
+		o = p.Origin()
+	default:
+		return false
+	}
+	if len(c.Accept) == 0 && len(c.Reject) == 0 {
+		return true
+	}
+	return checkOrigin(o, c.Accept) || !checkOrigin(o, c.Reject)
+}
+
+func checkOrigin(o string, vs []string) bool {
+	ix := sort.SearchStrings(vs, o)
+	return ix < len(vs) && vs[ix] == o
+}
+
+type Options struct {
+	Scheme   string `toml:"type"`
+	Location string `toml:"location"`
+	Format   string `toml:"format"`
+	Compress bool   `toml:"compress"`
+
+	Control `toml:"control"`
+
+	Epoch  string     `toml:"time"`
+	Levels []string   `toml:"levels"`
+	Shares []*Options `toml:"share"`
+
+	Link string `toml:"link"`
+}
 
 const (
 	LevelClassic  = "classic" // instance+type+mode+source
@@ -61,13 +109,13 @@ type Archiver struct {
 	Time     string   `toml:"time"`
 	Interval int      `toml:"-"`
 
-	mu sync.Mutex
+	mu    sync.Mutex
 	cache map[string]time.Time
 }
 
 func (a *Archiver) clean() {
 	every := time.Tick(time.Minute)
-	five := time.Minute*5
+	five := time.Minute * 5
 	for t := range every {
 		for k, v := range a.cache {
 			if t.Sub(v) >= five {
@@ -237,4 +285,47 @@ func instanceDir(base string, i uint8) string {
 		base = path.Join(base, "DATA-"+fmt.Sprint(i))
 	}
 	return base
+}
+
+func encodeRawPacket(w io.Writer, p panda.HRPacket) error {
+	var err error
+	switch p := p.(type) {
+	case *panda.Table:
+		i, ok := p.SDH.(panda.Four)
+		if !ok {
+			err = p.ExportRaw(w)
+			break
+		}
+		r := new(bytes.Buffer)
+		binary.Write(r, binary.BigEndian, i.FCC())
+		binary.Write(r, binary.BigEndian, p.Sequence())
+		if s, ok := p.SDH.(*panda.SDHv2); ok {
+			binary.Write(r, binary.BigEndian, s.Acquisition)
+		} else {
+			binary.Write(r, binary.BigEndian, p.Timestamp().Unix())
+		}
+		r.Write(p.Payload())
+
+		_, err = io.Copy(w, r)
+	case *panda.Image:
+		i, ok := p.IDH.(panda.Bitmap)
+		if !ok {
+			err = p.ExportRaw(w)
+			break
+		}
+		r := new(bytes.Buffer)
+
+		binary.Write(r, binary.BigEndian, i.FCC())
+		binary.Write(r, binary.BigEndian, p.Sequence())
+		if i, ok := p.IDH.(*panda.IDHv2); ok {
+			binary.Write(r, binary.BigEndian, i.Acquisition)
+		} else {
+			binary.Write(r, binary.BigEndian, p.Timestamp().Unix())
+		}
+		binary.Write(r, binary.BigEndian, i.X())
+		binary.Write(r, binary.BigEndian, i.Y())
+		r.Write(p.Payload())
+		_, err = io.Copy(w, r)
+	}
+	return err
 }
