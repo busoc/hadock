@@ -25,7 +25,7 @@ type tarstore struct {
 	mu    sync.Mutex
 	files map[string]*tarfile
 
-  links []linkstore
+	links []linkstore
 }
 
 func NewArchiveStorage(o Options) (Storage, error) {
@@ -57,7 +57,7 @@ func NewArchiveStorage(o Options) (Storage, error) {
 		tardir:  tardir,
 		files:   make(map[string]*tarfile),
 	}
-  for _, o := range o.Shares {
+	for _, o := range o.Shares {
 		k, err := newLinkStorage(*o)
 		if err != nil {
 			return nil, err
@@ -93,9 +93,9 @@ func (t *tarstore) writer(i uint8, p panda.HRPacket) (*tarfile, error) {
 		if err != nil {
 			return nil, err
 		}
-    if err := t.linkToShare(path.Join(dir, p.Filename()+TAR), i, p); err != nil {
-      return nil, err
-    }
+		if err := t.linkToShare(path.Join(dir, p.Filename()+TAR), i, p); err != nil {
+			return nil, err
+		}
 		tf = &tarfile{
 			Closer: f,
 			buffer: bufio.NewWriter(f),
@@ -110,7 +110,7 @@ func (t *tarstore) writer(i uint8, p panda.HRPacket) (*tarfile, error) {
 }
 
 func (t *tarstore) linkToShare(link string, i uint8, p panda.HRPacket) error {
-  for _, s := range t.links {
+	for _, s := range t.links {
 		if err := s.Link(link, i, p); err != nil {
 			return err
 		}
@@ -127,7 +127,7 @@ func (t *tarstore) flushFile(o string, d time.Duration) {
 	if !ok {
 		return
 	}
-  f.Close()
+	f.Close()
 	delete(t.files, o)
 }
 

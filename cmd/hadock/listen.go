@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/busoc/hadock"
+	"github.com/busoc/hadock/cascading"
 	"github.com/busoc/hadock/storage"
 	"github.com/busoc/panda"
 	"github.com/midbel/cli"
@@ -24,6 +25,7 @@ import (
 type proxy struct {
 	Addr  string `toml:"address"`
 	Level string `toml:"level"`
+	Size  int    `toml:"size"`
 }
 
 type decodeFunc func(io.Reader, []uint8) <-chan *hadock.Packet
@@ -231,7 +233,7 @@ func ListenPackets(a string, size int, p proxy, decode decodeFunc, is []uint8) (
 				defer c.Close()
 
 				var r io.Reader = c
-				if c, err := hadock.DialProxy(p.Addr, p.Level); err == nil {
+				if c, err := cascading.Proxy(p.Addr, p.Level, p.Size); err == nil {
 					defer c.Close()
 					r = io.TeeReader(r, c)
 				}
