@@ -359,7 +359,11 @@ func setupStorage(vs []storage.Options) (storage.Storage, error) {
 			err = fmt.Errorf("%s: unrecognized storage type", v.Scheme)
 		case "":
 			continue
-		case "tar", "archive", "zip":
+		case "tar", "archive":
+			if err = os.MkdirAll(v.Location, 0755); v.Location != "" && err != nil {
+				log.Printf("storage: fail to create archive directory: %s => %s", v.Location, err)
+				break
+			}
 			s, err = storage.NewArchiveStorage(v)
 		case "file":
 			if err = os.MkdirAll(v.Location, 0755); v.Location != "" && err != nil {
