@@ -54,13 +54,11 @@ func Proxy(addr, level string, n int) (io.WriteCloser, error) {
 }
 
 func (p *proxy) Close() error {
-	if p.buffer.Len() > 0 {
-		p.Write(nil)
-	}
+	err := p.flush()
 	for c := range p.queue {
 		c.Close()
 	}
-	return nil
+	return err
 }
 
 var syncword = []byte{0xf8, 0x2e, 0x35, 0x53}
@@ -84,6 +82,14 @@ func (p *proxy) Write(bs []byte) (int, error) {
 	}
 	p.buffer.Write(bs)
 	return len(bs), nil
+}
+
+func (p *proxy) flush() error {
+  var err error
+  if p.buffer.Len() > 0 {
+    _, err = p.Write(nil)
+  }
+  return err
 }
 
 func (p *proxy) pop() (net.Conn, error) {
