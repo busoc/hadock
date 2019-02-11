@@ -360,21 +360,15 @@ func setupStorage(vs []storage.Options) (storage.Storage, error) {
 		case "":
 			continue
 		case "tar", "archive":
-			if err = os.MkdirAll(v.Location, 0755); v.Location != "" && err != nil {
-				log.Printf("storage: fail to create archive directory: %s => %s", v.Location, err)
+			if err = mkdirAll(v); err != nil {
+				log.Printf("storage: fail to create directories of %s: %v", v.Scheme, err)
 				break
 			}
 			s, err = storage.NewArchiveStorage(v)
 		case "file":
-			if err = os.MkdirAll(v.Location, 0755); v.Location != "" && err != nil {
-				log.Printf("storage: fail to create data directory: %s => %s", v.Location, err)
+			if err = mkdirAll(v); err != nil {
+				log.Printf("storage: fail to create directories of %s: %v", v.Scheme, err)
 				break
-			}
-			for _, s := range v.Shares {
-				if err = os.MkdirAll(s.Location, 0755); s.Location != "" && err != nil {
-					log.Printf("storage: fail to create share directory: %s => %s", s.Location, err)
-					break
-				}
 			}
 			s, err = storage.NewLocalStorage(v)
 		}
@@ -384,4 +378,16 @@ func setupStorage(vs []storage.Options) (storage.Storage, error) {
 		fs = append(fs, s)
 	}
 	return storage.Multistore(fs...), nil
+}
+
+func mkdirAll(v storage.Options) error {
+	if err := os.MkdirAll(v.Location, 0755); v.Location != "" && err != nil {
+		return err
+	}
+	for _, s := range v.Shares {
+		if err := os.MkdirAll(s.Location, 0755); s.Location != "" && err != nil {
+			return err
+		}
+	}
+	return nil
 }
