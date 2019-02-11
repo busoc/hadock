@@ -39,6 +39,9 @@ func (c *Control) Can(p panda.HRPacket) bool {
 	if len(c.Accept) == 0 && len(c.Reject) == 0 {
 		return true
 	}
+	if len(c.Accept) == 0 {
+    return !checkOrigin(o, c.Reject)
+  }
 	return checkOrigin(o, c.Accept) || !checkOrigin(o, c.Reject)
 }
 
