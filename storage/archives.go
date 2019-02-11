@@ -105,9 +105,7 @@ func (t *tarstore) flushFile(o string, d time.Duration) {
 	if !ok {
 		return
 	}
-	if err := f.Close(); err != nil {
-		fmt.Println(err)
-	}
+  f.Close()
 	delete(t.files, o)
 }
 
