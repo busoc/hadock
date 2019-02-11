@@ -2,7 +2,6 @@ package storage
 
 import (
 	"bytes"
-	"encoding/xml"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -100,21 +99,7 @@ func (f *filestore) Store(i uint8, p panda.HRPacket) error {
 
 func (f *filestore) writeMetadata(dir string, i uint8, p *panda.Image) error {
 	var w bytes.Buffer
-
-	e := xml.NewEncoder(&w)
-	e.Indent("", "\t")
-
-	m := struct {
-		XMLName xml.Name  `xml:"metadata"`
-		Version int       `xml:"mark,attr"`
-		When    time.Time `xml:"vmu,attr"`
-		IDH     interface{}
-	}{
-		Version: p.Version(),
-		When:    p.VMUHeader.Timestamp(),
-		IDH:     p.IDH,
-	}
-	if err := e.Encode(m); err != nil {
+	if err := encodeMetadata(&w, p); err != nil {
 		return err
 	}
 	if w.Len() == 0 {

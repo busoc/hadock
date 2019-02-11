@@ -3,6 +3,7 @@ package storage
 import (
 	"bytes"
 	"encoding/binary"
+	"encoding/xml"
 	"fmt"
 	"io"
 	"os"
@@ -291,6 +292,22 @@ func instanceDir(base string, i uint8) string {
 		base = path.Join(base, "DATA-"+fmt.Sprint(i))
 	}
 	return base
+}
+
+func encodeMetadata(w io.Writer, p *panda.Image) error {
+	m := struct {
+		XMLName xml.Name  `xml:"metadata"`
+		Version int       `xml:"mark,attr"`
+		When    time.Time `xml:"vmu,attr"`
+		IDH     interface{}
+	}{
+		Version: p.Version(),
+		When:    p.VMUHeader.Timestamp(),
+		IDH:     p.IDH,
+	}
+	e := xml.NewEncoder(w)
+	e.Indent("", "\t")
+	return e.Encode(m)
 }
 
 func encodeRawPacket(w io.Writer, p panda.HRPacket) error {

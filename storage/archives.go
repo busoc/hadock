@@ -143,9 +143,49 @@ func (t *tarfile) storePacket(i uint8, p panda.HRPacket) error {
 		Name:    path.Join(dir, p.Filename()),
 		Size:    int64(w.Len()),
 		ModTime: when,
+		Uid:     1000,
+		Gid:     1000,
+		Format:  tar.FormatGNU,
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+	if err := t.writer.WriteHeader(&h); err != nil {
+		return err
+	}
+	_, err := io.CopyN(t.writer, &w, h.Size)
+	if err != nil {
+		return err
+	}
+	if p, ok := p.(*panda.Image); ok {
+		return t.storeMetadata(i, p)
+	}
+	return err
+}
+
+func (t *tarfile) storeMetadata(i uint8, p *panda.Image) error {
+	var w bytes.Buffer
+	if err := encodeMetadata(&w, p); err != nil {
+		return err
+	}
+	if w.Len() == 0 {
+		return nil
+	}
+	var when time.Time
+	switch t.data.Time {
+	case "vmu", "":
+		when = getVMUTime(p)
+	case "acq":
+		when = getACQTime(p)
+	}
+	dir, _ := t.data.Prepare(i, p)
+	h := tar.Header{
+		Name:    path.Join(dir, p.Filename()+XML),
+		Size:    int64(w.Len()),
+		ModTime: when,
+		Uid:     1000,
+		Gid:     1000,
+		Format:  tar.FormatGNU,
+	}
 	if err := t.writer.WriteHeader(&h); err != nil {
 		return err
 	}
