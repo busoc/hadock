@@ -21,10 +21,31 @@ type proxy struct {
 	level int
 }
 
-func Proxy(addr, level string, n int) (io.WriteCloser, error) {
-	if n <= 0 {
-		n = defaultSize
+type single struct {
+	net.Conn
+	addr   string
+	level  int
+	writer io.Writer
+}
+
+func (s *single) Write(bs []byte) (int, error) {
+	_, err := s.writer.Write(bs)
+	if err == nil {
+		if f, ok := s.writer.(*gzip.Writer); ok {
+			err = f.Flush()
+		}
 	}
+	if e, ok := e.(net.Error); ok {
+		s.reconnect()
+	}
+	return len(bs), err
+}
+
+func (s *single) reconnect() {
+
+}
+
+func Proxy(addr, level string, n int) (io.WriteCloser, error) {
 	var gz int
 	switch level {
 	default:
@@ -37,6 +58,9 @@ func Proxy(addr, level string, n int) (io.WriteCloser, error) {
 		gz = gzip.BestCompression
 	case "default":
 		gz = gzip.DefaultCompression
+	}
+	if n <= 0 {
+		return client(addr, gz)
 	}
 	p := proxy{
 		addr:  addr,
@@ -80,16 +104,16 @@ func (p *proxy) Write(bs []byte) (int, error) {
 		}(c, xs)
 		p.buffer.Reset()
 	}
-	p.buffer.Write(bs)
-	return len(bs), nil
+
+	return p.buffer.Write(bs)
 }
 
 func (p *proxy) flush() error {
-  var err error
-  if p.buffer.Len() > 0 {
-    _, err = p.Write(nil)
-  }
-  return err
+	var err error
+	if p.buffer.Len() > 0 {
+		_, err = p.Write(nil)
+	}
+	return err
 }
 
 func (p *proxy) pop() (net.Conn, error) {
@@ -114,7 +138,12 @@ func client(addr string, level int) (net.Conn, error) {
 	if err != nil {
 		return nil, err
 	}
-	n := conn{Conn: c, writer: c}
+	n := conn{
+		Conn:   c,
+		writer: c,
+		level:  level,
+		addr:   addr,
+	}
 	if level != nogzip {
 		n.writer, _ = gzip.NewWriterLevel(n.writer, level)
 	}
@@ -124,6 +153,9 @@ func client(addr string, level int) (net.Conn, error) {
 type conn struct {
 	net.Conn
 	writer io.Writer
+
+	addr  string
+	level int
 }
 
 func (c *conn) Write(bs []byte) (int, error) {
