@@ -42,21 +42,27 @@ func (c *Control) Can(p panda.HRPacket) bool {
 }
 
 func checkOrigin(o string, vs []string) bool {
+	if len(vs) == 0 {
+		return true
+	}
 	ix := sort.SearchStrings(vs, o)
 	return ix < len(vs) && vs[ix] == o
 }
 
 type Options struct {
-	Scheme   string `toml:"type"`
-	Location string `toml:"location"`
-	Format   string `toml:"format"`
-	Compress bool   `toml:"compress"`
+	Scheme    string  `toml:"type"`
+	Location  string  `toml:"location"`
+	Format    string  `toml:"format"`
+	Compress  bool    `toml:"compress"`
+	KeepBad   bool    `toml:"keep-bad"`
+	Instances []uint8 `toml:"instances"`
 
 	Control `toml:"control"`
 
-	Epoch  string     `toml:"time"`
-	Levels []string   `toml:"levels"`
-	Shares []*Options `toml:"share"`
+	Interval int        `toml:"interval"`
+	Epoch    string     `toml:"time"`
+	Levels   []string   `toml:"levels"`
+	Shares   []*Options `toml:"share"`
 
 	Link string `toml:"link"`
 }
@@ -103,7 +109,7 @@ func (m multistore) Store(i uint8, p panda.HRPacket) error {
 	return err
 }
 
-type Archiver struct {
+type dirmaker struct {
 	Levels   []string `toml:"levels"`
 	Base     string   `toml:"location"`
 	Time     string   `toml:"time"`
@@ -113,23 +119,23 @@ type Archiver struct {
 	cache map[string]time.Time
 }
 
-func (a *Archiver) clean() {
+func (d *dirmaker) clean() {
 	every := time.Tick(time.Minute)
 	five := time.Minute * 5
 	for t := range every {
-		for k, v := range a.cache {
+		for k, v := range d.cache {
 			if t.Sub(v) >= five {
-				a.mu.Lock()
-				delete(a.cache, k)
-				a.mu.Unlock()
+				d.mu.Lock()
+				delete(d.cache, k)
+				d.mu.Unlock()
 			}
 		}
 	}
 }
 
-func (a *Archiver) Prepare(i uint8, p panda.HRPacket) (string, error) {
+func (d *dirmaker) Prepare(i uint8, p panda.HRPacket) (string, error) {
 	var t time.Time
-	switch strings.ToLower(a.Time) {
+	switch strings.ToLower(d.Time) {
 	case "vmu", "":
 		t = getVMUTime(p)
 	case "acq":
@@ -139,16 +145,16 @@ func (a *Archiver) Prepare(i uint8, p panda.HRPacket) (string, error) {
 	if t.IsZero() {
 		t = p.Timestamp()
 	}
-	base := prepareDirectory(a.Base, a.Levels, a.Interval, i, p, t)
-	if a.cache != nil {
-		a.mu.Lock()
-		defer a.mu.Unlock()
-		if _, ok := a.cache[base]; !ok {
+	base := prepareDirectory(d.Base, d.Levels, d.Interval, i, p, t)
+	if d.cache != nil {
+		d.mu.Lock()
+		defer d.mu.Unlock()
+		if _, ok := d.cache[base]; !ok {
 			if err := os.MkdirAll(base, 0755); err != nil && !os.IsExist(err) {
 				return "", err
 			}
 		}
-		a.cache[base] = time.Now()
+		d.cache[base] = time.Now()
 	}
 	return base, nil
 }

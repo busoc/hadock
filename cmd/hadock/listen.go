@@ -37,14 +37,14 @@ func runListen(cmd *cli.Command, args []string) error {
 		return err
 	}
 	c := struct {
-		Addr      string   `toml:"address"`
-		Mode      string   `toml:"mode"`
-		Buffer    uint     `toml:"buffer"`
-		Proxy     proxy    `toml:"proxy"`
-		Instances []uint8  `toml:"instances"`
-		Stores    []storer `toml:"storage"`
-		Pool      pool     `toml:"pool"`
-		Modules   []module `toml:"module"`
+		Addr      string            `toml:"address"`
+		Mode      string            `toml:"mode"`
+		Buffer    uint              `toml:"buffer"`
+		Proxy     proxy             `toml:"proxy"`
+		Instances []uint8           `toml:"instances"`
+		Stores    []storage.Options `toml:"storage"`
+		Pool      pool              `toml:"pool"`
+		Modules   []module          `toml:"module"`
 	}{}
 	if err := toml.NewDecoder(f).Decode(&c); err != nil {
 		return err
@@ -344,25 +344,12 @@ func setupPool(p pool) (*hadock.Pool, error) {
 	return hadock.NewPool(ns, age, delay), nil
 }
 
-type storer struct {
-	Disabled    bool              `toml:"disabled"`
-	Scheme      string            `toml:"type"`
-	Data        *storage.Archiver `toml:"data"`
-	Share       *storage.Archiver `toml:"share"`
-	Raw         bool              `toml:"raw"`
-	Remove      bool              `toml:"remove"`
-	Granularity uint              `toml:"interval"`
-}
-
-func setupStorage(vs []storer) (storage.Storage, error) {
+func setupStorage(vs []storage.Options) (storage.Storage, error) {
 	if len(vs) == 0 {
 		return nil, fmt.Errorf("no storage defined! abort")
 	}
 	fs := make([]storage.Storage, 0, len(vs))
 	for _, v := range vs {
-		if v.Disabled {
-			continue
-		}
 		var (
 			err error
 			s   storage.Storage
@@ -370,25 +357,22 @@ func setupStorage(vs []storer) (storage.Storage, error) {
 		switch v.Scheme {
 		default:
 			err = fmt.Errorf("%s: unrecognized storage type", v.Scheme)
+		case "":
+			continue
 		case "tar", "archive", "zip":
-			s, err = storage.NewArchiveStorage(v.Scheme)
+			s, err = storage.NewArchiveStorage(v)
 		case "file":
-			if v.Data == nil {
-				return nil, fmt.Errorf("no primary storage defined")
-			}
-			if err = os.MkdirAll(v.Data.Base, 0755); v.Data.Base != "" && err != nil {
-				log.Printf("storage: fail to create data directory: %s => %s", v.Data.Base, err)
+			if err = os.MkdirAll(v.Location, 0755); v.Location != "" && err != nil {
+				log.Printf("storage: fail to create data directory: %s => %s", v.Location, err)
 				break
 			}
-			if v.Share != nil {
-				if err = os.MkdirAll(v.Share.Base, 0755); v.Share.Base != "" && err != nil {
-					log.Printf("storage: fail to create secondary directory: %s => %s", v.Share.Base, err)
+			for _, s := range v.Shares {
+				if err = os.MkdirAll(s.Location, 0755); s.Location != "" && err != nil {
+					log.Printf("storage: fail to create share directory: %s => %s", s.Location, err)
 					break
 				}
 			}
-			s, err = storage.NewLocalStorage(v.Data, v.Share, int(v.Granularity), v.Raw, v.Remove)
-		case "http", "hrdp":
-			err = fmt.Errorf("%s: storage not supported anymore", v.Scheme)
+			s, err = storage.NewLocalStorage(v)
 		}
 		if err != nil {
 			return nil, err

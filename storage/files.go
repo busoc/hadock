@@ -18,55 +18,60 @@ const (
 	XML = ".xml"
 )
 
-func NewLocalStorage(d, s *Archiver, g int, raw, rem bool) (Storage, error) {
-	if d == nil {
-		return nil, fmt.Errorf("data location not provided")
-	}
-	i, err := os.Stat(d.Base)
+type filestore struct {
+	Control
+
+	data   *dirmaker
+	rembad bool
+	encode func(io.Writer, panda.HRPacket) error
+
+	links []linkstore
+}
+
+func NewLocalStorage(o Options) (Storage, error) {
+	i, err := os.Stat(o.Location)
 	if err != nil {
 		return nil, err
 	}
 	if !i.IsDir() {
-		return nil, fmt.Errorf("%s: not a directory", d)
+		return nil, fmt.Errorf("%s: not a directory", o.Location)
 	}
-	d.Levels = checkLevels(d.Levels, []string{LevelClassic, LevelVMUTime})
-	d.Interval = g
-	d.cache = make(map[string]time.Time)
-	go d.clean()
-	if s != nil {
-		i, err := os.Stat(s.Base)
+	dm := dirmaker{
+		Levels:   checkLevels(o.Levels, []string{LevelClassic, LevelVMUTime}),
+		Base:     o.Location,
+		Time:     o.Epoch,
+		Interval: o.Interval,
+		cache:    make(map[string]time.Time),
+	}
+	go dm.clean()
+
+	s := filestore{
+		Control: o.Control,
+		rembad:  !o.KeepBad,
+		data:    &dm,
+	}
+	for _, o := range o.Shares {
+		k, err := newLinkStorage(*o)
 		if err != nil {
 			return nil, err
 		}
-		if !i.IsDir() {
-			return nil, fmt.Errorf("%s: not a directory", d)
-		}
-		s.Levels = checkLevels(s.Levels, []string{LevelClassic, LevelACQTime})
-		s.Interval = g
-		s.cache = make(map[string]time.Time)
-
-		go s.clean()
+		s.links = append(s.links, *k)
 	}
-
-	f := &filestore{data: d, share: s, remove: rem}
-	if raw {
-		f.encode = encodeRawPacket
-	} else {
-		f.encode = func(w io.Writer, p panda.HRPacket) error {
+	switch o.Format {
+	case "raw":
+		s.encode = encodeRawPacket
+	default:
+		s.encode = func(w io.Writer, p panda.HRPacket) error {
 			return p.Export(w, "")
 		}
 	}
-	return f, nil
-}
-
-type filestore struct {
-	data   *Archiver
-	share  *Archiver
-	remove bool
-	encode func(io.Writer, panda.HRPacket) error
+	return &s, nil
 }
 
 func (f *filestore) Store(i uint8, p panda.HRPacket) error {
+	if !f.Can(p) {
+		return nil
+	}
 	var w bytes.Buffer
 	filename := p.Filename()
 	badname := filename + BAD
@@ -77,7 +82,7 @@ func (f *filestore) Store(i uint8, p panda.HRPacket) error {
 	if err != nil {
 		return err
 	}
-	if !p.IsRealtime() && f.remove {
+	if !p.IsRealtime() && f.rembad {
 		os.Remove(path.Join(dir, badname))
 	}
 	file := path.Join(dir, filename)
@@ -118,7 +123,7 @@ func (f *filestore) writeMetadata(dir string, i uint8, p *panda.Image) error {
 
 	filename := p.Filename() + XML
 	badname := filename + BAD
-	if !p.IsRealtime() && f.remove {
+	if !p.IsRealtime() && f.rembad {
 		os.Remove(path.Join(dir, badname))
 	}
 	file := path.Join(dir, filename)
@@ -129,10 +134,52 @@ func (f *filestore) writeMetadata(dir string, i uint8, p *panda.Image) error {
 }
 
 func (f *filestore) linkToShare(link string, i uint8, p panda.HRPacket) error {
-	if f.share == nil {
-		return nil
+	for _, s := range f.links {
+		if err := s.Link(link, i, p); err != nil {
+			return err
+		}
 	}
-	dir, err := f.share.Prepare(i, p)
+	return nil
+}
+
+type linkstore struct {
+	link   string
+	rembad bool
+	data   *dirmaker
+}
+
+func newLinkStorage(o Options) (*linkstore, error) {
+	i, err := os.Stat(o.Location)
+	if err != nil {
+		return nil, err
+	}
+	if !i.IsDir() {
+		return nil, fmt.Errorf("%s: not a directory", o.Location)
+	}
+	dm := dirmaker{
+		Levels:   checkLevels(o.Levels, []string{LevelClassic, LevelACQTime}),
+		Base:     o.Location,
+		Time:     o.Epoch,
+		Interval: o.Interval,
+		cache:    make(map[string]time.Time),
+	}
+	go dm.clean()
+
+	switch o.Link {
+	case "", "hard", "soft":
+	default:
+		return nil, fmt.Errorf("invalid link type %s", o.Link)
+	}
+	k := linkstore{
+		link:   o.Link,
+		rembad: !o.KeepBad,
+		data:   &dm,
+	}
+	return &k, nil
+}
+
+func (s linkstore) Link(link string, i uint8, p panda.HRPacket) error {
+	dir, err := s.data.Prepare(i, p)
 	if err != nil {
 		return err
 	}
@@ -140,8 +187,14 @@ func (f *filestore) linkToShare(link string, i uint8, p panda.HRPacket) error {
 	badname := filename + BAD
 
 	os.Remove(path.Join(dir, filename))
-	if !p.IsRealtime() && f.remove {
+	if !p.IsRealtime() && s.rembad {
 		os.Remove(path.Join(dir, badname))
 	}
-	return os.Link(link, path.Join(dir, filename))
+	switch s.link {
+	case "hard", "":
+		err = os.Link(link, path.Join(dir, filename))
+	case "soft":
+		err = os.Symlink(link, path.Join(dir, filename))
+	}
+	return err
 }
