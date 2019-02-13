@@ -26,7 +26,7 @@ type tarstore struct {
 	files map[string]*tarfile
 
 	timeout time.Duration
-  links []linkstore
+	links   []linkstore
 }
 
 func NewArchiveStorage(o Options) (Storage, error) {
@@ -63,7 +63,7 @@ func NewArchiveStorage(o Options) (Storage, error) {
 	} else {
 		s.timeout = time.Minute
 	}
-  for _, o := range o.Shares {
+	for _, o := range o.Shares {
 		k, err := newLinkStorage(*o)
 		if err != nil {
 			return nil, err
@@ -92,6 +92,11 @@ func (t *tarstore) writer(i uint8, p panda.HRPacket) (*tarfile, error) {
 
 	o := makeKey(i, p)
 	tf, ok := t.files[o]
+	if ok && tf.shouldClose(p) {
+		tf.Close()
+		delete(t.files, o)
+		ok = !ok
+	}
 	if !ok {
 		dir, err := t.datadir.Prepare(i, p)
 		if err != nil {
@@ -101,11 +106,20 @@ func (t *tarstore) writer(i uint8, p panda.HRPacket) (*tarfile, error) {
 		if err != nil {
 			return nil, err
 		}
-    if err := t.linkToShare(path.Join(dir, p.Filename()+TAR), i, p); err != nil {
-      return nil, err
-    }
+		if err := t.linkToShare(path.Join(dir, p.Filename()+TAR), i, p); err != nil {
+			return nil, err
+		}
+		var when time.Time
+		switch t.tardir.Time {
+		case "vmu", "":
+			when = getVMUTime(p)
+		case "acq":
+			when = getACQTime(p)
+		}
 		tf = &tarfile{
-			file: f,
+			first:  when,
+			ttl:    time.Duration(t.tardir.Interval) * time.Second,
+			file:   f,
 			buffer: bufio.NewWriter(f),
 			data:   t.tardir,
 		}
@@ -127,7 +141,7 @@ func makeKey(i uint8, p panda.HRPacket) string {
 }
 
 func (t *tarstore) linkToShare(link string, i uint8, p panda.HRPacket) error {
-  for _, s := range t.links {
+	for _, s := range t.links {
 		if err := s.Link(link, i, p); err != nil {
 			return err
 		}
@@ -160,20 +174,37 @@ func (t *tarstore) flushFile(o string, d time.Duration) {
 }
 
 type tarfile struct {
-	mu sync.Mutex
+	mu     sync.Mutex
 	file   *os.File
 	buffer *bufio.Writer
 	writer *tar.Writer
 
-	data dirmaker
-	last time.Time
+	ttl   time.Duration
+	first time.Time
+
+	data  dirmaker
+	last  time.Time
 	count int
 }
 
 func (t *tarfile) Close() error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+
 	t.writer.Close()
 	t.buffer.Flush()
 	return t.file.Close()
+}
+
+func (t *tarfile) shouldClose(p panda.HRPacket) bool {
+	var when time.Time
+	switch t.data.Time {
+	case "vmu", "":
+		when = getVMUTime(p)
+	case "acq":
+		when = getACQTime(p)
+	}
+	return when.Sub(t.first) >= t.ttl
 }
 
 func (t *tarfile) storePacket(i uint8, p panda.HRPacket) error {
@@ -190,12 +221,13 @@ func (t *tarfile) storePacket(i uint8, p panda.HRPacket) error {
 	}
 	dir, _ := t.data.Prepare(i, p)
 	h := tar.Header{
-		Name:    path.Join(dir, p.Filename()),
-		Size:    int64(w.Len()),
-		ModTime: when,
-		Uid:     1000,
-		Gid:     1000,
-		Format:  tar.FormatGNU,
+		Typeflag: tar.TypeReg,
+		Name:     path.Join(dir, p.Filename()),
+		Size:     int64(w.Len()),
+		ModTime:  when,
+		Uid:      1000,
+		Gid:      1000,
+		Format:   tar.FormatGNU,
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
@@ -232,12 +264,13 @@ func (t *tarfile) storeMetadata(i uint8, p *panda.Image) error {
 	}
 	dir, _ := t.data.Prepare(i, p)
 	h := tar.Header{
-		Name:    path.Join(dir, p.Filename()+XML),
-		Size:    int64(w.Len()),
-		ModTime: when,
-		Uid:     1000,
-		Gid:     1000,
-		Format:  tar.FormatGNU,
+		Typeflag: tar.TypeReg,
+		Name:     path.Join(dir, p.Filename()+XML),
+		Size:     int64(w.Len()),
+		ModTime:  when,
+		Uid:      1000,
+		Gid:      1000,
+		Format:   tar.FormatGNU,
 	}
 	if err := t.writer.WriteHeader(&h); err != nil {
 		return err

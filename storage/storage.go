@@ -40,8 +40,8 @@ func (c *Control) Can(p panda.HRPacket) bool {
 		return true
 	}
 	if len(c.Accept) == 0 {
-    return !checkOrigin(o, c.Reject)
-  }
+		return !checkOrigin(o, c.Reject)
+	}
 	return checkOrigin(o, c.Accept) || !checkOrigin(o, c.Reject)
 }
 
@@ -54,13 +54,13 @@ func checkOrigin(o string, vs []string) bool {
 }
 
 type Options struct {
-	Scheme    string  `toml:"type"`
-	Location  string  `toml:"location"`
-	Format    string  `toml:"format"`
-	Compress  bool    `toml:"compress"`
-	KeepBad   bool    `toml:"keep-bad"`
+	Scheme   string `toml:"type"`
+	Location string `toml:"location"`
+	Format   string `toml:"format"`
+	Compress bool   `toml:"compress"`
+	KeepBad  bool   `toml:"keep-bad"`
 	// Instances []uint8 `toml:"instances"`
-	Timeout   int      `toml:"timeout"`
+	Timeout int `toml:"timeout"`
 
 	Control `toml:"control"`
 
