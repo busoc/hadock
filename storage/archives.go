@@ -82,7 +82,9 @@ func (t *tarstore) writer(i uint8, p panda.HRPacket) (*tarfile, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 
-	o := p.Origin()
+	// o := p.Origin()
+
+	o := makeKey(p)
 	tf, ok := t.files[o]
 	if !ok {
 		dir, err := t.datadir.Prepare(i, p)
@@ -107,6 +109,15 @@ func (t *tarstore) writer(i uint8, p panda.HRPacket) (*tarfile, error) {
 
 	}
 	return tf, nil
+}
+
+func makeKey(p panda.HRPacket) string {
+	base := p.Origin()
+	base = instanceDir(base, p)
+	base = typeDir(base, p)
+	base = modeDir(base, p)
+
+	return base
 }
 
 func (t *tarstore) linkToShare(link string, i uint8, p panda.HRPacket) error {
