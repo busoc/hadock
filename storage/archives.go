@@ -25,6 +25,7 @@ type tarstore struct {
 	mu    sync.Mutex
 	files map[string]*tarfile
 
+	timeout time.Duration
   links []linkstore
 }
 
@@ -57,6 +58,11 @@ func NewArchiveStorage(o Options) (Storage, error) {
 		tardir:  tardir,
 		files:   make(map[string]*tarfile),
 	}
+	if o.Timeout > 0 {
+		s.timeout = time.Second * time.Duration(o.Timeout)
+	} else {
+		s.timeout = time.Minute
+	}
   for _, o := range o.Shares {
 		k, err := newLinkStorage(*o)
 		if err != nil {
@@ -84,7 +90,7 @@ func (t *tarstore) writer(i uint8, p panda.HRPacket) (*tarfile, error) {
 
 	// o := p.Origin()
 
-	o := makeKey(p)
+	o := makeKey(i, p)
 	tf, ok := t.files[o]
 	if !ok {
 		dir, err := t.datadir.Prepare(i, p)
@@ -99,21 +105,21 @@ func (t *tarstore) writer(i uint8, p panda.HRPacket) (*tarfile, error) {
       return nil, err
     }
 		tf = &tarfile{
-			Closer: f,
+			file: f,
 			buffer: bufio.NewWriter(f),
 			data:   t.tardir,
 		}
 		tf.writer = tar.NewWriter(tf.buffer)
 		t.files[o] = tf
-		go t.flushFile(o, time.Second*time.Duration(t.tardir.Interval))
+		go t.flushFile(o, t.timeout)
 
 	}
 	return tf, nil
 }
 
-func makeKey(p panda.HRPacket) string {
+func makeKey(i uint8, p panda.HRPacket) string {
 	base := p.Origin()
-	base = instanceDir(base, p)
+	base = instanceDir(base, i)
 	base = typeDir(base, p)
 	base = modeDir(base, p)
 
@@ -130,31 +136,44 @@ func (t *tarstore) linkToShare(link string, i uint8, p panda.HRPacket) error {
 }
 
 func (t *tarstore) flushFile(o string, d time.Duration) {
-	<-time.After(d)
-	t.mu.Lock()
-	defer t.mu.Unlock()
+	tick := time.NewTicker(d)
+	defer tick.Stop()
+	for n := range tick.C {
+		t.mu.Lock()
 
-	f, ok := t.files[o]
-	if !ok {
-		return
+		var done bool
+		if f, ok := t.files[o]; ok {
+			if n.Sub(f.last) > d {
+				f.Close()
+				if f.count == 0 {
+					os.Remove(f.file.Name())
+				}
+				delete(t.files, o)
+				done = true
+			}
+		}
+		t.mu.Unlock()
+		if done {
+			return
+		}
 	}
-  f.Close()
-	delete(t.files, o)
 }
 
 type tarfile struct {
 	mu sync.Mutex
-	io.Closer
+	file   *os.File
 	buffer *bufio.Writer
 	writer *tar.Writer
 
 	data dirmaker
+	last time.Time
+	count int
 }
 
 func (t *tarfile) Close() error {
 	t.writer.Close()
 	t.buffer.Flush()
-	return t.Closer.Close()
+	return t.file.Close()
 }
 
 func (t *tarfile) storePacket(i uint8, p panda.HRPacket) error {
@@ -180,6 +199,9 @@ func (t *tarfile) storePacket(i uint8, p panda.HRPacket) error {
 	}
 	t.mu.Lock()
 	defer t.mu.Unlock()
+
+	t.last = time.Now()
+	t.count++
 	if err := t.writer.WriteHeader(&h); err != nil {
 		return err
 	}

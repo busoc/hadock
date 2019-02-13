@@ -235,7 +235,8 @@ func ListenPackets(a string, size int, p proxy, decode decodeFunc, is []uint8) (
 					defer c.Close()
 					r = io.TeeReader(r, c)
 				}
-				for p := range decode(r, is) {
+				rs := bufio.NewReader(r)
+				for p := range decode(rs, is) {
 					q <- p
 				}
 				//log.Printf("connection closed: %s", c.RemoteAddr())

@@ -59,7 +59,8 @@ type Options struct {
 	Format    string  `toml:"format"`
 	Compress  bool    `toml:"compress"`
 	KeepBad   bool    `toml:"keep-bad"`
-	Instances []uint8 `toml:"instances"`
+	// Instances []uint8 `toml:"instances"`
+	Timeout   int      `toml:"timeout"`
 
 	Control `toml:"control"`
 
