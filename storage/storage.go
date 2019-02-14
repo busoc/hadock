@@ -104,7 +104,20 @@ type multistore struct {
 	ms []Storage
 }
 
-func (m multistore) Store(i uint8, p panda.HRPacket) error {
+func (m *multistore) Close() error {
+	var err error
+	for _, s := range ms {
+		c, ok := s.(io.Closer)
+		if ok {
+			if e := c.Close(); e != nil && err == nil {
+				err = e
+			}
+		}
+	}
+	return err
+}
+
+func (m *multistore) Store(i uint8, p panda.HRPacket) error {
 	var err error
 	for _, s := range m.ms {
 		if e := s.Store(i, p); e != nil {
