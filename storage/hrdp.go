@@ -2,12 +2,14 @@ package storage
 
 import (
 	"bytes"
+	"bufio"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
 	"path"
 	"strconv"
+	"sync"
 	"time"
 
 	"github.com/busoc/panda"
@@ -26,7 +28,15 @@ func NewHRDPStorage(o Options) (Storage, error) {
 		return nil, fmt.Errorf("%s: not a directory", o.Location)
 	}
 	var h hrdpstore
+	h.writer, err = createFile(o.Location)
+	if err != nil {
+		return nil, err
+	}
 	return &h, nil
+}
+
+func (h *hrdpstore) Close() error {
+	return h.writer.Close()
 }
 
 func (h *hrdpstore) Store(i uint8, p panda.HRPacket) error {
@@ -48,6 +58,78 @@ func (h *hrdpstore) Store(i uint8, p panda.HRPacket) error {
 	}
 	binary.Write(h.writer, binary.BigEndian, uint32(w.Len()))
 	_, err = io.Copy(h.writer, &w)
+	return err
+}
+
+type file struct {
+	ticker  *time.Ticker
+	datadir string
+
+	mu sync.Mutex
+	inner *os.File
+	writer *bufio.Writer
+	written int
+}
+
+func createFile(d string) (io.WriteCloser, error) {
+	t := time.NewTicker(time.Minute*5)
+	f := file{datadir: d, ticker: t}
+	if err := f.createFile(time.Now()); err != nil {
+		return nil, err
+	}
+	go f.rotate()
+	return &f, nil
+}
+
+func (f *file) Write(bs []byte) (int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+
+	n, err := f.writer.Write(bs)
+	if err == nil {
+		f.written += n
+	}
+	return n, err
+}
+
+func (f *file) Close() error {
+	f.ticker.Stop()
+	return f.flushAndClose()
+}
+
+func (f *file) rotate() {
+	for n := range f.ticker.C {
+		f.mu.Lock()
+		f.flushAndClose()
+		f.createFile(n)
+		f.mu.Unlock()
+	}
+	f.flushAndClose()
+}
+
+func (f *file) createFile(n time.Time) error {
+	p, err := timepath(f.datadir, n)
+	if err != nil {
+		return err
+	}
+	f.inner, err = os.Create(p)
+	if err != nil {
+		return err
+	}
+	f.writer.Reset(f.inner)
+	f.written = 0
+	return nil
+}
+
+func (f *file) flushAndClose() error {
+	err := f.writer.Flush()
+	if err := f.inner.Close(); err != nil {
+		return err
+	}
+	if f.written == 0 {
+		os.Remove(f.inner.Name())
+	}
+	f.written = 0
 	return err
 }
 
