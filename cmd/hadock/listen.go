@@ -360,6 +360,12 @@ func setupStorage(vs []storage.Options) (storage.Storage, error) {
 			err = fmt.Errorf("%s: unrecognized storage type", v.Scheme)
 		case "":
 			continue
+		case "hrdp":
+			if err = mkdirAll(v); err != nil {
+				log.Printf("storage: fail to create directories of %s: %v", v.Scheme, err)
+				break
+			}
+			s, err = storage.NewHRDPStorage(v)
 		case "tar", "archive":
 			if err = mkdirAll(v); err != nil {
 				log.Printf("storage: fail to create directories of %s: %v", v.Scheme, err)
