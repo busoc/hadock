@@ -46,12 +46,14 @@ func (h *hrdpstore) Store(i uint8, p panda.HRPacket) error {
 	}
 	upi := make([]byte, 32)
 	copy(upi, []byte(getUPI(p)))
-	// instance (1) + type (1) + mode (1) + origin (1) + upi (32) + data (len(payload))
+	// instance (1) + type (1) + mode (1) + origin (1) + sequence (4) + upi (32) + data (len(payload))
 	var w bytes.Buffer
 	binary.Write(&w, binary.BigEndian, i)
 	binary.Write(&w, binary.BigEndian, p.Stream())
 	binary.Write(&w, binary.BigEndian, p.IsRealtime())
 	binary.Write(&w, binary.BigEndian, uint8(o))
+	binary.Write(&w, binary.BigEndian, p.Sequence())
+	binary.Write(&w, binary.BigEndian, uint32(p.Timestamp().Unix()))
 	w.Write(upi)
 	if err := encodeRawPacket(&w, p); err != nil {
 		return err
@@ -68,12 +70,16 @@ type file struct {
 	mu sync.Mutex
 	inner *os.File
 	writer *bufio.Writer
-	written int
+	written chan int
 }
 
 func createFile(d string) (io.WriteCloser, error) {
 	t := time.NewTicker(time.Minute*5)
-	f := file{datadir: d, ticker: t}
+	f := file{
+		datadir: d,
+		ticker: t,
+		written: make(chan int),
+	}
 	if err := f.createFile(time.Now()); err != nil {
 		return nil, err
 	}
@@ -87,24 +93,45 @@ func (f *file) Write(bs []byte) (int, error) {
 
 	n, err := f.writer.Write(bs)
 	if err == nil {
-		f.written += n
+		f.written <- n
 	}
 	return n, err
 }
 
 func (f *file) Close() error {
 	f.ticker.Stop()
-	return f.flushAndClose()
+	return nil
+	// return f.flushAndClose()
 }
 
 func (f *file) rotate() {
-	for n := range f.ticker.C {
-		f.mu.Lock()
-		f.flushAndClose()
-		f.createFile(n)
-		f.mu.Unlock()
+	var written int
+	ten := time.Second*10
+	timeout := time.NewTimer(ten)
+	for {
+		select {
+		case n := <- f.ticker.C:
+			f.mu.Lock()
+			f.flushAndClose(written)
+			f.createFile(n)
+			f.mu.Unlock()
+			if !timeout.Stop() {
+				<-timeout.C
+			}
+			timeout.Reset(ten)
+		case n := <- f.written:
+			if !timeout.Stop() {
+				<-timeout.C
+			}
+			timeout.Reset(ten)
+			written+=n
+		case <-timeout.C:
+			f.mu.Lock()
+			f.flushAndClose(written)
+			f.mu.Unlock()
+		}
 	}
-	f.flushAndClose()
+	f.flushAndClose(written)
 }
 
 func (f *file) createFile(n time.Time) error {
@@ -116,20 +143,22 @@ func (f *file) createFile(n time.Time) error {
 	if err != nil {
 		return err
 	}
-	f.writer.Reset(f.inner)
-	f.written = 0
+	if f.writer == nil {
+		f.writer = bufio.NewWriter(f.inner)
+	} else {
+		f.writer.Reset(f.inner)
+	}
 	return nil
 }
 
-func (f *file) flushAndClose() error {
+func (f *file) flushAndClose(written int) error {
 	err := f.writer.Flush()
 	if err := f.inner.Close(); err != nil {
 		return err
 	}
-	if f.written == 0 {
+	if written == 0 {
 		os.Remove(f.inner.Name())
 	}
-	f.written = 0
 	return err
 }
 
@@ -137,14 +166,14 @@ func timepath(p string, n time.Time) (string, error) {
 	if n.IsZero() {
 		n = time.Now()
 	}
-	y := fmt.Sprintf("%04d")
-	d := fmt.Sprintf("%03d")
-	h := fmt.Sprintf("%02d")
+	y := fmt.Sprintf("%04d", n.Year())
+	d := fmt.Sprintf("%03d", n.YearDay())
+	h := fmt.Sprintf("%02d", n.Hour())
 	m := n.Truncate(time.Minute * 5)
 
 	dir := path.Join(p, y, d, h)
 	if err := os.MkdirAll(dir, 0755); err != nil && !os.IsExist(err) {
 		return "", err
 	}
-	return path.Join(dir, fmt.Sprintf("hdk_%02d.dat", m)), nil
+	return path.Join(dir, fmt.Sprintf("hdk_%02d.dat", m.Minute())), nil
 }

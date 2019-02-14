@@ -106,7 +106,7 @@ type multistore struct {
 
 func (m *multistore) Close() error {
 	var err error
-	for _, s := range ms {
+	for _, s := range m.ms {
 		c, ok := s.(io.Closer)
 		if ok {
 			if e := c.Close(); e != nil && err == nil {
