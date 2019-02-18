@@ -2,17 +2,16 @@ package storage
 
 import (
 	"bytes"
-	"bufio"
 	"encoding/binary"
 	"fmt"
 	"io"
 	"os"
-	"path"
+	"path/filepath"
 	"strconv"
-	"sync"
 	"time"
 
 	"github.com/busoc/panda"
+	"github.com/midbel/roll"
 )
 
 type hrdpstore struct {
@@ -28,7 +27,20 @@ func NewHRDPStorage(o Options) (Storage, error) {
 		return nil, fmt.Errorf("%s: not a directory", o.Location)
 	}
 	var h hrdpstore
-	h.writer, err = createFile(o.Location)
+	os := roll.Options{
+		Interval: time.Duration(o.Interval) * time.Second,
+		Timeout: time.Duration(o.Timeout) * time.Second,
+		KeepEmpty: false,
+		Next: func(i int, w time.Time) (string, error) {
+			y := fmt.Sprintf("%04d", w.Year())
+			d := fmt.Sprintf("%03d", w.YearDay())
+			h := fmt.Sprintf("%02d", w.Hour())
+
+			n := fmt.Sprintf("hdk_%06d_%02d.bin", i, w.Minute())
+			return filepath.Join(y, d, h, n), nil
+		},
+	}
+	h.writer, err = roll.Writer(o.Location, os)
 	if err != nil {
 		return nil, err
 	}
@@ -61,119 +73,4 @@ func (h *hrdpstore) Store(i uint8, p panda.HRPacket) error {
 	binary.Write(h.writer, binary.BigEndian, uint32(w.Len()))
 	_, err = io.Copy(h.writer, &w)
 	return err
-}
-
-type file struct {
-	ticker  *time.Ticker
-	datadir string
-
-	mu sync.Mutex
-	inner *os.File
-	writer *bufio.Writer
-	written chan int
-}
-
-func createFile(d string) (io.WriteCloser, error) {
-	t := time.NewTicker(time.Minute*5)
-	f := file{
-		datadir: d,
-		ticker: t,
-		written: make(chan int),
-	}
-	if err := f.createFile(time.Now()); err != nil {
-		return nil, err
-	}
-	go f.rotate()
-	return &f, nil
-}
-
-func (f *file) Write(bs []byte) (int, error) {
-	f.mu.Lock()
-	defer f.mu.Unlock()
-
-	n, err := f.writer.Write(bs)
-	if err == nil {
-		f.written <- n
-	}
-	return n, err
-}
-
-func (f *file) Close() error {
-	f.ticker.Stop()
-	return nil
-	// return f.flushAndClose()
-}
-
-func (f *file) rotate() {
-	var written int
-	ten := time.Second*10
-	timeout := time.NewTimer(ten)
-	for {
-		select {
-		case n := <- f.ticker.C:
-			f.mu.Lock()
-			f.flushAndClose(written)
-			f.createFile(n)
-			f.mu.Unlock()
-			if !timeout.Stop() {
-				<-timeout.C
-			}
-			timeout.Reset(ten)
-		case n := <- f.written:
-			if !timeout.Stop() {
-				<-timeout.C
-			}
-			timeout.Reset(ten)
-			written+=n
-		case <-timeout.C:
-			f.mu.Lock()
-			f.flushAndClose(written)
-			f.mu.Unlock()
-		}
-	}
-	f.flushAndClose(written)
-}
-
-func (f *file) createFile(n time.Time) error {
-	p, err := timepath(f.datadir, n)
-	if err != nil {
-		return err
-	}
-	f.inner, err = os.Create(p)
-	if err != nil {
-		return err
-	}
-	if f.writer == nil {
-		f.writer = bufio.NewWriter(f.inner)
-	} else {
-		f.writer.Reset(f.inner)
-	}
-	return nil
-}
-
-func (f *file) flushAndClose(written int) error {
-	err := f.writer.Flush()
-	if err := f.inner.Close(); err != nil {
-		return err
-	}
-	if written == 0 {
-		os.Remove(f.inner.Name())
-	}
-	return err
-}
-
-func timepath(p string, n time.Time) (string, error) {
-	if n.IsZero() {
-		n = time.Now()
-	}
-	y := fmt.Sprintf("%04d", n.Year())
-	d := fmt.Sprintf("%03d", n.YearDay())
-	h := fmt.Sprintf("%02d", n.Hour())
-	m := n.Truncate(time.Minute * 5)
-
-	dir := path.Join(p, y, d, h)
-	if err := os.MkdirAll(dir, 0755); err != nil && !os.IsExist(err) {
-		return "", err
-	}
-	return path.Join(dir, fmt.Sprintf("hdk_%02d.dat", m.Minute())), nil
 }
