@@ -18,6 +18,7 @@ import (
 type hrdpstore struct {
 	mu sync.Mutex
 	writer io.WriteCloser
+	// buffer []byte
 }
 
 // instance (1) + type (1) + mode (1) + origin (1) + sequence (4) + when (4) + upi (32) + data (len(payload))
@@ -49,6 +50,7 @@ func NewHRDPStorage(o Options) (Storage, error) {
 	if err != nil {
 		return nil, err
 	}
+	// h.buffer = make([]byte, 8<<20)
 	return &h, nil
 }
 
@@ -77,8 +79,11 @@ func (h *hrdpstore) Store(i uint8, p panda.HRPacket) error {
 	binary.Write(&w, binary.BigEndian, uint32(p.Timestamp().Unix()))
 	w.Write(upi)
 
+	io.Copy(&w, &b)
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	_, err = io.Copy(h.writer, io.MultiReader(&w, &b))
+	// _, err = io.CopyBuffer(h.writer, io.MultiReader(&w, &b), h.buffer)
+	_, err = h.writer.Write(w.Bytes())
 	return err
 }
