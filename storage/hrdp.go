@@ -20,6 +20,9 @@ type hrdpstore struct {
 	writer io.WriteCloser
 }
 
+// instance (1) + type (1) + mode (1) + origin (1) + sequence (4) + when (4) + upi (32) + data (len(payload))
+const hrdpHeaderSize = 44
+
 func NewHRDPStorage(o Options) (Storage, error) {
 	i, err := os.Stat(o.Location)
 	if err != nil {
@@ -60,8 +63,12 @@ func (h *hrdpstore) Store(i uint8, p panda.HRPacket) error {
 	}
 	upi := make([]byte, 32)
 	copy(upi, []byte(getUPI(p)))
-	// instance (1) + type (1) + mode (1) + origin (1) + sequence (4) + upi (32) + data (len(payload))
-	var w bytes.Buffer
+	// instance (1) + type (1) + mode (1) + origin (1) + sequence (4) + time(4) + upi (32) + data (len(payload))
+	var w, b bytes.Buffer
+	if err := encodeRawPacket(&b, p); err != nil {
+		return err
+	}
+	binary.Write(&w, binary.BigEndian, uint32(b.Len() + hrdpHeaderSize))
 	binary.Write(&w, binary.BigEndian, i)
 	binary.Write(&w, binary.BigEndian, p.Stream())
 	binary.Write(&w, binary.BigEndian, p.IsRealtime())
@@ -69,12 +76,9 @@ func (h *hrdpstore) Store(i uint8, p panda.HRPacket) error {
 	binary.Write(&w, binary.BigEndian, p.Sequence())
 	binary.Write(&w, binary.BigEndian, uint32(p.Timestamp().Unix()))
 	w.Write(upi)
-	if err := encodeRawPacket(&w, p); err != nil {
-		return err
-	}
+
 	h.mu.Lock()
 	defer h.mu.Unlock()
-	binary.Write(h.writer, binary.BigEndian, uint32(w.Len()))
-	_, err = io.Copy(h.writer, &w)
+	_, err = io.Copy(h.writer, io.MultiReader(&w, &b))
 	return err
 }

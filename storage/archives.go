@@ -19,8 +19,8 @@ const TAR = ".tar"
 type tarstore struct {
 	Control
 
-	datadir dirmaker
-	tardir  dirmaker
+	datadir *dirmaker
+	tardir  *dirmaker
 
 	mu    sync.Mutex
 	files map[string]*tarfile
@@ -54,8 +54,8 @@ func NewArchiveStorage(o Options) (Storage, error) {
 	}
 	s := &tarstore{
 		Control: o.Control,
-		datadir: datadir,
-		tardir:  tardir,
+		datadir: &datadir,
+		tardir:  &tardir,
 		files:   make(map[string]*tarfile),
 	}
 	if o.Timeout > 0 {
@@ -116,6 +116,11 @@ func (t *tarstore) writer(i uint8, p panda.HRPacket) (*tarfile, error) {
 		case "acq":
 			when = getACQTime(p)
 		}
+		// dm := dirmaker{
+		// 	Levels:   t.tardir.Levels,
+		// 	Time:     t.tardir.Time,
+		// 	Interval: t.tardir.Interval,
+		// }
 		tf = &tarfile{
 			first:  when,
 			ttl:    time.Duration(t.tardir.Interval) * time.Second,
@@ -182,7 +187,7 @@ type tarfile struct {
 	ttl   time.Duration
 	first time.Time
 
-	data  dirmaker
+	data  *dirmaker
 	last  time.Time
 	count int
 }
