@@ -9,12 +9,14 @@ import (
 	"path/filepath"
 	"strconv"
 	"time"
+	"sync"
 
 	"github.com/busoc/panda"
 	"github.com/midbel/roll"
 )
 
 type hrdpstore struct {
+	mu sync.Mutex
 	writer io.WriteCloser
 }
 
@@ -36,7 +38,7 @@ func NewHRDPStorage(o Options) (Storage, error) {
 			d := fmt.Sprintf("%03d", w.YearDay())
 			h := fmt.Sprintf("%02d", w.Hour())
 
-			n := fmt.Sprintf("hdk_%06d_%02d.bin", i, w.Minute())
+			n := fmt.Sprintf("hdk_%06d_%02d-%02d.bin", i, w.Minute(), w.Second())
 			return filepath.Join(y, d, h, n), nil
 		},
 	}
@@ -70,6 +72,8 @@ func (h *hrdpstore) Store(i uint8, p panda.HRPacket) error {
 	if err := encodeRawPacket(&w, p); err != nil {
 		return err
 	}
+	h.mu.Lock()
+	defer h.mu.Unlock()
 	binary.Write(h.writer, binary.BigEndian, uint32(w.Len()))
 	_, err = io.Copy(h.writer, &w)
 	return err
