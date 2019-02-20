@@ -11,6 +11,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/busoc/hadock/vmu"
 	"github.com/busoc/panda"
 	"github.com/midbel/roll"
 )
@@ -33,9 +34,9 @@ func NewHRDPStorage(o Options) (Storage, error) {
 	}
 	var h hrdpstore
 	os := roll.Options{
-		MaxSize: 64<<20,
-		Interval: time.Duration(o.Interval) * time.Second,
-		Timeout: time.Duration(o.Timeout) * time.Second,
+		MaxSize:   64 << 20,
+		Interval:  time.Duration(o.Interval) * time.Second,
+		Timeout:   time.Duration(o.Timeout) * time.Second,
 		KeepEmpty: false,
 		Next: func(i int, w time.Time) (string, error) {
 			y := fmt.Sprintf("%04d", w.Year())
@@ -81,7 +82,7 @@ func encodeBinary(ws io.Writer, i uint8, p panda.HRPacket) error {
 	if err := encodeRawPacket(&b, p); err != nil {
 		return err
 	}
-	binary.Write(&w, binary.BigEndian, uint32(b.Len() + hrdpHeaderSize))
+	binary.Write(&w, binary.BigEndian, uint32(b.Len()+hrdpHeaderSize))
 	binary.Write(&w, binary.BigEndian, i)
 	binary.Write(&w, binary.BigEndian, p.Stream())
 	binary.Write(&w, binary.BigEndian, p.IsRealtime())
@@ -100,5 +101,5 @@ func encodeBinary(ws io.Writer, i uint8, p panda.HRPacket) error {
 }
 
 func encodeHRDP(w io.Writer, i uint8, p panda.HRPacket) error {
-	return nil
+	return vmu.EncodePacket(w, p, true)
 }
