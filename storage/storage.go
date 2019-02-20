@@ -141,13 +141,13 @@ func (d *dirmaker) clean() {
 	every := time.Tick(time.Minute)
 	five := time.Minute * 5
 	for t := range every {
+		d.mu.Lock()
 		for k, v := range d.cache {
 			if t.Sub(v) >= five {
-				d.mu.Lock()
 				delete(d.cache, k)
-				d.mu.Unlock()
 			}
 		}
+		d.mu.Unlock()
 	}
 }
 

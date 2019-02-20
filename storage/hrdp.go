@@ -34,6 +34,7 @@ func NewHRDPStorage(o Options) (Storage, error) {
 	}
 	var h hrdpstore
 	os := roll.Options{
+		MaxSize: 64<<20,
 		Interval: time.Duration(o.Interval) * time.Second,
 		Timeout: time.Duration(o.Timeout) * time.Second,
 		KeepEmpty: false,
@@ -46,7 +47,7 @@ func NewHRDPStorage(o Options) (Storage, error) {
 			return filepath.Join(y, d, h, n), nil
 		},
 	}
-	h.writer, err = roll.Writer(o.Location, os)
+	h.writer, err = roll.Buffer(o.Location, os)
 	if err != nil {
 		return nil, err
 	}
@@ -81,8 +82,8 @@ func (h *hrdpstore) Store(i uint8, p panda.HRPacket) error {
 
 	io.Copy(&w, &b)
 
-	h.mu.Lock()
-	defer h.mu.Unlock()
+	// h.mu.Lock()
+	// defer h.mu.Unlock()
 	// _, err = io.CopyBuffer(h.writer, io.MultiReader(&w, &b), h.buffer)
 	_, err = h.writer.Write(w.Bytes())
 	return err
