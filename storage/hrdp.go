@@ -8,17 +8,16 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"time"
-	"sync"
 
 	"github.com/busoc/panda"
 	"github.com/midbel/roll"
 )
 
 type hrdpstore struct {
-	mu sync.Mutex
 	writer io.WriteCloser
-	// buffer []byte
+	encode func(io.Writer, uint8, panda.HRPacket) error
 }
 
 // instance (1) + type (1) + mode (1) + origin (1) + sequence (4) + when (4) + upi (32) + data (len(payload))
@@ -47,11 +46,18 @@ func NewHRDPStorage(o Options) (Storage, error) {
 			return filepath.Join(y, d, h, n), nil
 		},
 	}
+	switch strings.ToLower(o.Format) {
+	case "hadock", "hdk":
+		h.encode = encodeBinary
+	case "hrdp", "rt", "vmu", "":
+		h.encode = encodeHRDP
+	default:
+		return nil, fmt.Errorf("unsupported format %q", o.Format)
+	}
 	h.writer, err = roll.Buffer(o.Location, os)
 	if err != nil {
 		return nil, err
 	}
-	// h.buffer = make([]byte, 8<<20)
 	return &h, nil
 }
 
@@ -60,13 +66,17 @@ func (h *hrdpstore) Close() error {
 }
 
 func (h *hrdpstore) Store(i uint8, p panda.HRPacket) error {
+	return h.encode(h.writer, i, p)
+}
+
+func encodeBinary(ws io.Writer, i uint8, p panda.HRPacket) error {
 	o, err := strconv.ParseUint(p.Origin(), 16, 8)
 	if err != nil {
 		return err
 	}
 	upi := make([]byte, 32)
 	copy(upi, []byte(getUPI(p)))
-	// instance (1) + type (1) + mode (1) + origin (1) + sequence (4) + time(4) + upi (32) + data (len(payload))
+
 	var w, b bytes.Buffer
 	if err := encodeRawPacket(&b, p); err != nil {
 		return err
@@ -85,6 +95,10 @@ func (h *hrdpstore) Store(i uint8, p panda.HRPacket) error {
 	// h.mu.Lock()
 	// defer h.mu.Unlock()
 	// _, err = io.CopyBuffer(h.writer, io.MultiReader(&w, &b), h.buffer)
-	_, err = h.writer.Write(w.Bytes())
+	_, err = ws.Write(w.Bytes())
 	return err
+}
+
+func encodeHRDP(w io.Writer, i uint8, p panda.HRPacket) error {
+	return nil
 }
