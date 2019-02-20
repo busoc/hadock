@@ -17,7 +17,7 @@ func EncodePacket(ws io.Writer, p panda.HRPacket, hrdp bool) error {
 		buffer bytes.Buffer
 	)
 	if hrdp {
-		if err := encodeHRDPHeader(ws, p); err != nil {
+		if err := encodeHRDPHeader(&buffer, p); err != nil {
 			return err
 		}
 	}
@@ -37,7 +37,7 @@ func EncodePacket(ws io.Writer, p panda.HRPacket, hrdp bool) error {
 }
 
 func encodeHRDPHeader(ws io.Writer, p panda.HRPacket) error {
-	size := uint32(HRDPHeaderLen + HRDLSyncLen + VMUHLen + 4)
+	size := uint32(HRDPHeaderLen + HRDLSyncLen + VMUHLen)
 	switch c := p.Stream(); c {
 	case panda.Science:
 		size += SDHLenV2
@@ -69,7 +69,6 @@ func encodeHRDPHeader(ws io.Writer, p panda.HRPacket) error {
 	binary.Write(ws, binary.BigEndian, fine)
 	binary.Write(ws, binary.BigEndian, coarse)
 	return nil
-
 }
 
 func encodeVMUHeader(ws io.Writer, v *panda.VMUHeader) error {
@@ -85,7 +84,7 @@ func encodeVMUHeader(ws io.Writer, v *panda.VMUHeader) error {
 
 func encodeTable(ws io.Writer, p *panda.Table) error {
 	body := p.Payload()
-	size := uint32(VMUHLen + SDHLenV2 + len(body))
+	size := uint32(VMUHLen + SDHLenV2 + len(body)-4)
 
 	binary.Write(ws, binary.BigEndian, uint32(HRDLMagic))
 	binary.Write(ws, binary.LittleEndian, size)
@@ -104,7 +103,7 @@ func encodeTable(ws io.Writer, p *panda.Table) error {
 	binary.Write(ws, binary.LittleEndian, s.Id)
 	ws.Write(s.Info[:])
 	ws.Write(body)
-	binary.Write(ws, binary.LittleEndian, p.Sum)
+	// binary.Write(ws, binary.LittleEndian, p.Sum)
 
 	return nil
 }
