@@ -53,7 +53,8 @@ func encodeHRDPHeader(ws io.Writer, p panda.HRPacket) error {
 	binary.Write(ws, binary.BigEndian, uint8(FSLMagic))
 	binary.Write(ws, binary.BigEndian, p.Stream())
 
-	acq, now := time.Now(), time.Now()
+	acq := time.Now()
+	now := timutil.GPSTime(acq, true)
 	if g, ok := p.(interface{ Generated() time.Time }); ok {
 		acq = g.Generated()
 	}
