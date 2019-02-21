@@ -84,7 +84,7 @@ func encodeVMUHeader(ws io.Writer, v *panda.VMUHeader) error {
 
 func encodeTable(ws io.Writer, p *panda.Table) error {
 	body := p.Payload()
-	size := uint32(VMUHLen + SDHLenV2 + len(body)-4)
+	size := uint32(VMUHLen + SDHLenV2 + len(body) - 4)
 
 	binary.Write(ws, binary.BigEndian, uint32(HRDLMagic))
 	binary.Write(ws, binary.LittleEndian, size)
@@ -109,8 +109,32 @@ func encodeTable(ws io.Writer, p *panda.Table) error {
 }
 
 func encodeImage(ws io.Writer, p *panda.Image) error {
+	body := p.Payload()
+	size := uint32(VMUHLen + SDHLenV2 + len(body) - 4)
+
+	binary.Write(ws, binary.BigEndian, uint32(HRDLMagic))
+	binary.Write(ws, binary.LittleEndian, size)
 	if err := encodeVMUHeader(ws, p.VMUHeader); err != nil {
 		return err
 	}
+	i, ok := p.IDH.(*panda.IDHv2)
+	if !ok {
+		return fmt.Errorf("invalid IDH version")
+	}
+	binary.Write(ws, binary.LittleEndian, i.Properties)
+	binary.Write(ws, binary.LittleEndian, i.Sequence)
+	binary.Write(ws, binary.LittleEndian, i.Originator)
+	binary.Write(ws, binary.LittleEndian, i.Acquisition)
+	binary.Write(ws, binary.LittleEndian, i.Auxiliary)
+	binary.Write(ws, binary.LittleEndian, i.Id)
+	binary.Write(ws, binary.LittleEndian, i.Type)
+	binary.Write(ws, binary.LittleEndian, i.Pixels)
+	binary.Write(ws, binary.LittleEndian, i.Region)
+	binary.Write(ws, binary.LittleEndian, i.Dropping)
+	binary.Write(ws, binary.LittleEndian, i.Scaling)
+	binary.Write(ws, binary.LittleEndian, i.Ratio)
+	ws.Write(i.Info[:])
+	ws.Write(body)
+
 	return nil
 }

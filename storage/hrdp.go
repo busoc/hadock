@@ -48,17 +48,18 @@ func NewHRDPStorage(o Options) (Storage, error) {
 		},
 	}
 	switch strings.ToLower(o.Format) {
-	case "hadock", "hdk":
-		h.encode = encodeBinary
-	case "hrdp", "rt", "vmu", "":
+	case "hrdp", "vmu":
 		h.encode = encodeHRDP
+	case "hadock", "hdk":
+		h.encode = encodeHadock
 	default:
-		return nil, fmt.Errorf("unsupported format %q", o.Format)
+		return nil, fmt.Errorf("unknown format %q", o.Format)
 	}
 	h.writer, err = roll.Buffer(o.Location, os)
 	if err != nil {
 		return nil, err
 	}
+	// h.buffer = make([]byte, 8<<20)
 	return &h, nil
 }
 
@@ -70,14 +71,13 @@ func (h *hrdpstore) Store(i uint8, p panda.HRPacket) error {
 	return h.encode(h.writer, i, p)
 }
 
-func encodeBinary(ws io.Writer, i uint8, p panda.HRPacket) error {
+func encodeHadock(ws io.Writer, i uint8, p panda.HRPacket) error {
 	o, err := strconv.ParseUint(p.Origin(), 16, 8)
 	if err != nil {
 		return err
 	}
 	upi := make([]byte, 32)
 	copy(upi, []byte(getUPI(p)))
-
 	var w, b bytes.Buffer
 	if err := encodeRawPacket(&b, p); err != nil {
 		return err
@@ -93,13 +93,10 @@ func encodeBinary(ws io.Writer, i uint8, p panda.HRPacket) error {
 
 	io.Copy(&w, &b)
 
-	// h.mu.Lock()
-	// defer h.mu.Unlock()
-	// _, err = io.CopyBuffer(h.writer, io.MultiReader(&w, &b), h.buffer)
 	_, err = ws.Write(w.Bytes())
-	return err
+	return nil
 }
 
-func encodeHRDP(w io.Writer, i uint8, p panda.HRPacket) error {
+func encodeHRDP(w io.Writer, _ uint8, p panda.HRPacket) error {
 	return vmu.EncodePacket(w, p, true)
 }
