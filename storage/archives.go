@@ -41,7 +41,7 @@ func NewArchiveStorage(o Options) (Storage, error) {
 		Interval: o.Interval,
 	}
 	opt := roll.Options{
-		MaxSize:  512,
+		MaxSize:  1024,
 		Interval: time.Duration(o.Interval) * time.Second,
 		Timeout:  time.Duration(o.Timeout) * time.Second,
 	}
@@ -63,7 +63,7 @@ func (t *tarstore) Store(i uint8, p panda.HRPacket) error {
 	w, ok := t.caches[k]
 	if !ok {
 		opt := t.options
-		opt.Next = nextFunc(k, p)
+		opt.Next = nextFunc(k, p.Origin())
 		tb, err := roll.Tar(t.datadir, opt)
 		if err != nil {
 			return err
@@ -89,9 +89,11 @@ func (t *tarstore) Store(i uint8, p panda.HRPacket) error {
 	return w.Write(&h, buf.Bytes())
 }
 
-func nextFunc(k string, p panda.HRPacket) roll.NextFunc {
+func nextFunc(k string, origin string) roll.NextFunc {
+	var iter int
 	return func(i int, n time.Time) (string, error) {
-		f := fmt.Sprintf("%s_%s.tar", p.Origin(), n.Format("20180102150405"))
+		iter++
+		f := fmt.Sprintf("%s_%s-%06d.tar", origin, n.Format("20180102150405"), iter)
 		return filepath.Join(k, f), nil
 	}
 }

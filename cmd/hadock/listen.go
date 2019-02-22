@@ -140,7 +140,7 @@ func Convert(ps <-chan *hadock.Packet, n int) <-chan *hadock.Item {
 	)
 	go func() {
 		logger := log.New(os.Stderr, "[hdk] ", 0)
-		tick := time.Tick(time.Second * 5)
+		tick := time.Tick(time.Second)
 		for range tick {
 			if total > 0 || skipped > 0 || errors > 0 {
 				logger.Printf("%6d total, %6d images, %6d sciences, %6d skipped, %6d errors, %7dKB", total, image, science, skipped, errors, size>>10)
