@@ -86,7 +86,30 @@ func (t *tarstore) Store(i uint8, p panda.HRPacket) error {
 		Uid:     1000,
 		Mode:    0644,
 	}
-	return w.Write(&h, buf.Bytes())
+	if err := w.Write(&h, buf.Bytes()); err != nil {
+		return err
+	}
+	if p, ok := p.(*panda.Image); ok {
+		return t.storeMetadata(w, i, p)
+	}
+	return nil
+}
+
+func (t *tarstore) storeMetadata(tb *roll.Tarball, i uint8, p *panda.Image) error {
+	var w bytes.Buffer
+	if err := encodeMetadata(&w, p); err != nil {
+		return err
+	}
+	dir, _ := t.tardir.Prepare(i, p)
+	h := roll.Header{
+		Name:    filepath.Join(dir, p.Filename() + XML),
+		Size:    int64(w.Len()),
+		ModTime: p.Timestamp(),
+		Gid:     1000,
+		Uid:     1000,
+		Mode:    0644,
+	}
+	return tb.Write(&h, w.Bytes())
 }
 
 func nextFunc(k string, origin string) roll.NextFunc {
@@ -99,9 +122,8 @@ func nextFunc(k string, origin string) roll.NextFunc {
 }
 
 func cacheKey(i uint8, p panda.HRPacket) string {
-	base := p.Origin()
-	base = instanceDir(base, i)
+	base := instanceDir("", i)
+	base = modeDir(base, p)
 	base = typeDir(base, p)
-
-	return modeDir(base, p)
+	return filepath.Join(base, p.Origin())
 }
