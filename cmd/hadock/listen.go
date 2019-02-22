@@ -142,7 +142,7 @@ func Convert(ps <-chan *hadock.Packet, n int) <-chan *hadock.Item {
 	)
 	go func() {
 		logger := log.New(os.Stderr, "[hdk] ", 0)
-		tick := time.Tick(time.Second * 5)
+		tick := time.Tick(time.Second)
 		for range tick {
 			if total > 0 || skipped > 0 || errors > 0 {
 				logger.Printf("%6d total, %6d images, %6d sciences, %6d skipped, %6d errors, %7dKB", total, image, science, skipped, errors, size>>10)
@@ -237,7 +237,8 @@ func ListenPackets(a string, size int, p proxy, decode decodeFunc, is []uint8) (
 					defer c.Close()
 					r = io.TeeReader(r, c)
 				}
-				for p := range decode(r, is) {
+				rs := bufio.NewReader(r)
+				for p := range decode(rs, is) {
 					q <- p
 				}
 				//log.Printf("connection closed: %s", c.RemoteAddr())
@@ -361,6 +362,12 @@ func setupStorage(vs []storage.Options) (storage.Storage, error) {
 			err = fmt.Errorf("%s: unrecognized storage type", v.Scheme)
 		case "":
 			continue
+		case "hrdp":
+			if err = mkdirAll(v); err != nil {
+				log.Printf("storage: fail to create directories of %s: %v", v.Scheme, err)
+				break
+			}
+			s, err = storage.NewHRDPStorage(v)
 		case "tar", "archive":
 			if err = mkdirAll(v); err != nil {
 				log.Printf("storage: fail to create directories of %s: %v", v.Scheme, err)

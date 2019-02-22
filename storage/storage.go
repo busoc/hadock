@@ -54,12 +54,13 @@ func checkOrigin(o string, vs []string) bool {
 }
 
 type Options struct {
-	Scheme    string  `toml:"type"`
-	Location  string  `toml:"location"`
-	Format    string  `toml:"format"`
-	Compress  bool    `toml:"compress"`
-	KeepBad   bool    `toml:"keep-bad"`
-	Instances []uint8 `toml:"instances"`
+	Scheme   string `toml:"type"`
+	Location string `toml:"location"`
+	Format   string `toml:"format"`
+	Compress bool   `toml:"compress"`
+	KeepBad  bool   `toml:"keep-bad"`
+	// Instances []uint8 `toml:"instances"`
+	Timeout int `toml:"timeout"`
 
 	Control `toml:"control"`
 
@@ -103,7 +104,20 @@ type multistore struct {
 	ms []Storage
 }
 
-func (m multistore) Store(i uint8, p panda.HRPacket) error {
+func (m *multistore) Close() error {
+	var err error
+	for _, s := range m.ms {
+		c, ok := s.(io.Closer)
+		if ok {
+			if e := c.Close(); e != nil && err == nil {
+				err = e
+			}
+		}
+	}
+	return err
+}
+
+func (m *multistore) Store(i uint8, p panda.HRPacket) error {
 	var err error
 	for _, s := range m.ms {
 		if e := s.Store(i, p); e != nil {
@@ -127,13 +141,13 @@ func (d *dirmaker) clean() {
 	every := time.Tick(time.Minute)
 	five := time.Minute * 5
 	for t := range every {
+		d.mu.Lock()
 		for k, v := range d.cache {
 			if t.Sub(v) >= five {
-				d.mu.Lock()
 				delete(d.cache, k)
-				d.mu.Unlock()
 			}
 		}
+		d.mu.Unlock()
 	}
 }
 

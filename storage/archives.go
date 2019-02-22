@@ -1,17 +1,15 @@
 package storage
 
 import (
-	"archive/tar"
-	"bufio"
 	"bytes"
 	"fmt"
-	"io"
 	"os"
-	"path"
+	"path/filepath"
 	"sync"
 	"time"
 
 	"github.com/busoc/panda"
+	"github.com/midbel/roll"
 )
 
 const TAR = ".tar"
@@ -19,13 +17,13 @@ const TAR = ".tar"
 type tarstore struct {
 	Control
 
-	datadir dirmaker
-	tardir  dirmaker
+	datadir string
+	tardir  *dirmaker
 
-	mu    sync.Mutex
-	files map[string]*tarfile
+	options roll.Options
 
-	links []linkstore
+	mu     sync.Mutex
+	caches map[string]*roll.Tarball
 }
 
 func NewArchiveStorage(o Options) (Storage, error) {
@@ -36,27 +34,25 @@ func NewArchiveStorage(o Options) (Storage, error) {
 	if !i.IsDir() {
 		return nil, fmt.Errorf("%s: not a directory", o.Location)
 	}
-	datadir := dirmaker{
+	dm := dirmaker{
 		Levels:   checkLevels(o.Levels, []string{LevelClassic, LevelVMUTime}),
-		Time:     o.Epoch,
-		Interval: 0,
-		Base:     o.Location,
-		cache:    make(map[string]time.Time),
-	}
-	tardir := dirmaker{
-		Levels:   checkLevels(o.Levels, []string{LevelClassic, LevelVMUTime}),
+		Base:     "",
 		Time:     o.Epoch,
 		Interval: o.Interval,
 	}
-	if tardir.Interval <= 0 {
-		tardir.Interval = 60
+	opt := roll.Options{
+		MaxSize:  1024,
+		Interval: time.Duration(o.Interval) * time.Second,
+		Timeout:  time.Duration(o.Timeout) * time.Second,
 	}
-	s := &tarstore{
+	t := tarstore{
 		Control: o.Control,
-		datadir: datadir,
-		tardir:  tardir,
-		files:   make(map[string]*tarfile),
+		datadir: o.Location,
+		options: opt,
+		tardir:  &dm,
+		caches:  make(map[string]*roll.Tarball),
 	}
+<<<<<<< HEAD
 	for _, o := range o.Shares {
 		k, err := newLinkStorage(*o)
 		if err != nil {
@@ -65,32 +61,23 @@ func NewArchiveStorage(o Options) (Storage, error) {
 		s.links = append(s.links, *k)
 	}
 	return s, nil
+=======
+	return &t, nil
+>>>>>>> iss839
 }
 
 func (t *tarstore) Store(i uint8, p panda.HRPacket) error {
 	if !t.Can(p) {
 		return nil
 	}
-	tw, err := t.writer(i, p)
-	if err != nil {
-		return err
-	}
-	return tw.storePacket(i, p)
-}
-
-func (t *tarstore) writer(i uint8, p panda.HRPacket) (*tarfile, error) {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	o := p.Origin()
-	tf, ok := t.files[o]
+	k := cacheKey(i, p)
+	w, ok := t.caches[k]
 	if !ok {
-		dir, err := t.datadir.Prepare(i, p)
+		opt := t.options
+		opt.Next = nextFunc(k, p.Origin())
+		tb, err := roll.Tar(t.datadir, opt)
 		if err != nil {
-			return nil, err
-		}
-		f, err := os.Create(path.Join(dir, p.Filename()+TAR))
-		if err != nil {
+<<<<<<< HEAD
 			return nil, err
 		}
 		if err := t.linkToShare(path.Join(dir, p.Filename()+TAR), i, p); err != nil {
@@ -112,9 +99,16 @@ func (t *tarstore) writer(i uint8, p panda.HRPacket) (*tarfile, error) {
 func (t *tarstore) linkToShare(link string, i uint8, p panda.HRPacket) error {
 	for _, s := range t.links {
 		if err := s.Link(link, i, p); err != nil {
+=======
+>>>>>>> iss839
 			return err
 		}
+		w = tb
+		t.mu.Lock()
+		t.caches[k] = w
+		t.mu.Unlock()
 	}
+<<<<<<< HEAD
 	return nil
 }
 
@@ -157,58 +151,59 @@ func (t *tarfile) storePacket(i uint8, p panda.HRPacket) error {
 		when = getVMUTime(p)
 	case "acq":
 		when = getACQTime(p)
-	}
-	dir, _ := t.data.Prepare(i, p)
-	h := tar.Header{
-		Name:    path.Join(dir, p.Filename()),
-		Size:    int64(w.Len()),
-		ModTime: when,
-		Uid:     1000,
-		Gid:     1000,
-		Format:  tar.FormatGNU,
-	}
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	if err := t.writer.WriteHeader(&h); err != nil {
+=======
+	var buf bytes.Buffer
+	if err := encodeRawPacket(&buf, p); err != nil {
 		return err
+>>>>>>> iss839
 	}
-	_, err := io.CopyN(t.writer, &w, h.Size)
-	if err != nil {
+	dir, _ := t.tardir.Prepare(i, p)
+	h := roll.Header{
+		Name:    filepath.Join(dir, p.Filename()),
+		Size:    int64(buf.Len()),
+		ModTime: p.Timestamp(),
+		Gid:     1000,
+		Uid:     1000,
+		Mode:    0644,
+	}
+	if err := w.Write(&h, buf.Bytes()); err != nil {
 		return err
 	}
 	if p, ok := p.(*panda.Image); ok {
-		return t.storeMetadata(i, p)
+		return t.storeMetadata(w, i, p)
 	}
-	return err
+	return nil
 }
 
-func (t *tarfile) storeMetadata(i uint8, p *panda.Image) error {
+func (t *tarstore) storeMetadata(tb *roll.Tarball, i uint8, p *panda.Image) error {
 	var w bytes.Buffer
 	if err := encodeMetadata(&w, p); err != nil {
 		return err
 	}
-	if w.Len() == 0 {
-		return nil
-	}
-	var when time.Time
-	switch t.data.Time {
-	case "vmu", "":
-		when = getVMUTime(p)
-	case "acq":
-		when = getACQTime(p)
-	}
-	dir, _ := t.data.Prepare(i, p)
-	h := tar.Header{
-		Name:    path.Join(dir, p.Filename()+XML),
+	dir, _ := t.tardir.Prepare(i, p)
+	h := roll.Header{
+		Name:    filepath.Join(dir, p.Filename() + XML),
 		Size:    int64(w.Len()),
-		ModTime: when,
-		Uid:     1000,
+		ModTime: p.Timestamp(),
 		Gid:     1000,
-		Format:  tar.FormatGNU,
+		Uid:     1000,
+		Mode:    0644,
 	}
-	if err := t.writer.WriteHeader(&h); err != nil {
-		return err
+	return tb.Write(&h, w.Bytes())
+}
+
+func nextFunc(k string, origin string) roll.NextFunc {
+	var iter int
+	return func(i int, n time.Time) (string, error) {
+		iter++
+		f := fmt.Sprintf("%s_%s-%06d.tar", origin, n.Format("20180102150405"), iter)
+		return filepath.Join(k, f), nil
 	}
-	_, err := io.CopyN(t.writer, &w, h.Size)
-	return err
+}
+
+func cacheKey(i uint8, p panda.HRPacket) string {
+	base := instanceDir("", i)
+	base = modeDir(base, p)
+	base = typeDir(base, p)
+	return filepath.Join(base, p.Origin())
 }

@@ -44,6 +44,11 @@ var commands = []*cli.Command{
 		Short: "monitor hadock activities",
 		Run:   runMonitor,
 	},
+	{
+		Usage: "dispatch <directory>",
+		Short: "",
+		Run:   runDispatch,
+	},
 }
 
 func init() {
