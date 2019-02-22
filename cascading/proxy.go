@@ -35,7 +35,7 @@ func (s *single) Write(bs []byte) (int, error) {
 			err = f.Flush()
 		}
 	}
-	if e, ok := e.(net.Error); ok {
+	if _, ok := err.(net.Error); ok {
 		s.reconnect()
 	}
 	return len(bs), err

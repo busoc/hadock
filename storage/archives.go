@@ -52,18 +52,7 @@ func NewArchiveStorage(o Options) (Storage, error) {
 		tardir:  &dm,
 		caches:  make(map[string]*roll.Tarball),
 	}
-<<<<<<< HEAD
-	for _, o := range o.Shares {
-		k, err := newLinkStorage(*o)
-		if err != nil {
-			return nil, err
-		}
-		s.links = append(s.links, *k)
-	}
-	return s, nil
-=======
 	return &t, nil
->>>>>>> iss839
 }
 
 func (t *tarstore) Store(i uint8, p panda.HRPacket) error {
@@ -77,30 +66,6 @@ func (t *tarstore) Store(i uint8, p panda.HRPacket) error {
 		opt.Next = nextFunc(k, p.Origin())
 		tb, err := roll.Tar(t.datadir, opt)
 		if err != nil {
-<<<<<<< HEAD
-			return nil, err
-		}
-		if err := t.linkToShare(path.Join(dir, p.Filename()+TAR), i, p); err != nil {
-			return nil, err
-		}
-		tf = &tarfile{
-			Closer: f,
-			buffer: bufio.NewWriter(f),
-			data:   t.tardir,
-		}
-		tf.writer = tar.NewWriter(tf.buffer)
-		t.files[o] = tf
-		go t.flushFile(o, time.Second*time.Duration(t.tardir.Interval))
-
-	}
-	return tf, nil
-}
-
-func (t *tarstore) linkToShare(link string, i uint8, p panda.HRPacket) error {
-	for _, s := range t.links {
-		if err := s.Link(link, i, p); err != nil {
-=======
->>>>>>> iss839
 			return err
 		}
 		w = tb
@@ -108,54 +73,9 @@ func (t *tarstore) linkToShare(link string, i uint8, p panda.HRPacket) error {
 		t.caches[k] = w
 		t.mu.Unlock()
 	}
-<<<<<<< HEAD
-	return nil
-}
-
-func (t *tarstore) flushFile(o string, d time.Duration) {
-	<-time.After(d)
-	t.mu.Lock()
-	defer t.mu.Unlock()
-
-	f, ok := t.files[o]
-	if !ok {
-		return
-	}
-	f.Close()
-	delete(t.files, o)
-}
-
-type tarfile struct {
-	mu sync.Mutex
-	io.Closer
-	buffer *bufio.Writer
-	writer *tar.Writer
-
-	data dirmaker
-}
-
-func (t *tarfile) Close() error {
-	t.writer.Close()
-	t.buffer.Flush()
-	return t.Closer.Close()
-}
-
-func (t *tarfile) storePacket(i uint8, p panda.HRPacket) error {
-	var w bytes.Buffer
-	if err := encodeRawPacket(&w, p); err != nil {
-		return fmt.Errorf("%s not written: %s", p.Filename(), err)
-	}
-	var when time.Time
-	switch t.data.Time {
-	case "vmu", "":
-		when = getVMUTime(p)
-	case "acq":
-		when = getACQTime(p)
-=======
 	var buf bytes.Buffer
 	if err := encodeRawPacket(&buf, p); err != nil {
 		return err
->>>>>>> iss839
 	}
 	dir, _ := t.tardir.Prepare(i, p)
 	h := roll.Header{
