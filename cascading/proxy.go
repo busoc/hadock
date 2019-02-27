@@ -21,31 +21,10 @@ type proxy struct {
 	level int
 }
 
-type single struct {
-	net.Conn
-	addr   string
-	level  int
-	writer io.Writer
-}
-
-func (s *single) Write(bs []byte) (int, error) {
-	_, err := s.writer.Write(bs)
-	if err == nil {
-		if f, ok := s.writer.(*gzip.Writer); ok {
-			err = f.Flush()
-		}
-	}
-	if _, ok := err.(net.Error); ok {
-		s.reconnect()
-	}
-	return len(bs), err
-}
-
-func (s *single) reconnect() {
-
-}
-
 func Proxy(addr, level string, n int) (io.WriteCloser, error) {
+	if _, _, err := net.SplitHostPort(addr); err != nil {
+		return nil, err
+	}
 	var gz int
 	switch level {
 	default:
@@ -60,20 +39,20 @@ func Proxy(addr, level string, n int) (io.WriteCloser, error) {
 		gz = gzip.DefaultCompression
 	}
 	if n <= 0 {
-		return client(addr, gz)
+		n = defaultSize
 	}
 	p := proxy{
 		addr:  addr,
 		level: gz,
 		queue: make(chan net.Conn, n),
 	}
-	for i := 0; i < n; i++ {
-		c, err := client(p.addr, p.level)
-		if err != nil {
-			return nil, err
-		}
-		p.push(c)
-	}
+	// for i := 0; i < n; i++ {
+	// 	c, err := client(p.addr, p.level)
+	// 	if err != nil {
+	// 		return nil, err
+	// 	}
+	// 	p.push(c)
+	// }
 	return &p, nil
 }
 
