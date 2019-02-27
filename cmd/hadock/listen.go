@@ -2,7 +2,7 @@ package main
 
 import (
 	"bufio"
-	"compress/gzip"
+	// "compress/gzip"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -23,9 +23,8 @@ import (
 )
 
 type proxy struct {
-	Addr  string `toml:"address"`
-	Level string `toml:"level"`
-	Size  int    `toml:"size"`
+	Addr string `toml:"address"`
+	Size int    `toml:"size"`
 }
 
 type decodeFunc func(io.Reader, []uint8) <-chan *hadock.Packet
@@ -114,16 +113,16 @@ func Decode(mode string) (decodeFunc, error) {
 		df = hadock.DecodeCompressedPackets
 	case "binary", "":
 		df = hadock.DecodeBinaryPackets
-	case "binary+gzip":
-		df = func(r io.Reader, is []uint8) <-chan *hadock.Packet {
-			if _, ok := r.(io.ByteReader); ok {
-				r = bufio.NewReader(r)
-			}
-			if rs, err := gzip.NewReader(r); err == nil {
-				r = rs
-			}
-			return hadock.DecodeBinaryPackets(r, is)
-		}
+	// case "binary+gzip":
+	// 	df = func(r io.Reader, is []uint8) <-chan *hadock.Packet {
+	// 		if _, ok := r.(io.ByteReader); ok {
+	// 			r = bufio.NewReader(r)
+	// 		}
+	// 		if rs, err := gzip.NewReader(r); err == nil {
+	// 			r = rs
+	// 		}
+	// 		return hadock.DecodeBinaryPackets(r, is)
+	// 	}
 	default:
 		return nil, fmt.Errorf("unsupported working mode %s", mode)
 	}
@@ -233,7 +232,7 @@ func ListenPackets(a string, size int, p proxy, decode decodeFunc, is []uint8) (
 				defer c.Close()
 
 				var r io.Reader = c
-				if c, err := cascading.Proxy(p.Addr, p.Level, p.Size); err == nil {
+				if c, err := cascading.Proxy(p.Addr, p.Size); err == nil {
 					defer c.Close()
 					r = io.TeeReader(r, c)
 				}

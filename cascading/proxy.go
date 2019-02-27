@@ -2,57 +2,31 @@ package cascading
 
 import (
 	"bytes"
-	"compress/gzip"
 	"io"
 	"io/ioutil"
 	"net"
 )
 
-const (
-	nogzip      = -10
-	defaultSize = 4
-)
+const defaultSize = 4
 
 type proxy struct {
 	queue  chan net.Conn
 	buffer bytes.Buffer
 
-	addr  string
-	level int
+	addr string
 }
 
-func Proxy(addr, level string, n int) (io.WriteCloser, error) {
+func Proxy(addr string, n int) (io.WriteCloser, error) {
 	if _, _, err := net.SplitHostPort(addr); err != nil {
 		return nil, err
-	}
-	var gz int
-	switch level {
-	default:
-		gz = nogzip
-	case "no":
-		gz = gzip.NoCompression
-	case "speed":
-		gz = gzip.BestSpeed
-	case "best":
-		gz = gzip.BestCompression
-	case "default":
-		gz = gzip.DefaultCompression
 	}
 	if n <= 0 {
 		n = defaultSize
 	}
 	p := proxy{
 		addr:  addr,
-		level: gz,
 		queue: make(chan net.Conn, n),
 	}
-	// for i := 0; i < n; i++ {
-	// 	c, err := client(p.addr, p.level)
-	// 	if err != nil {
-	// 		return nil, err
-	// 	}
-	// 	p.push(c)
-	// }
 	return &p, nil
 }
 
@@ -100,7 +74,7 @@ func (p *proxy) pop() (net.Conn, error) {
 	case c := <-p.queue:
 		return c, nil
 	default:
-		return client(p.addr, p.level)
+		return client(p.addr)
 	}
 }
 
@@ -112,7 +86,7 @@ func (p *proxy) push(c net.Conn) {
 	}
 }
 
-func client(addr string, level int) (net.Conn, error) {
+func client(addr string) (net.Conn, error) {
 	c, err := net.Dial("tcp", addr)
 	if err != nil {
 		return nil, err
@@ -120,11 +94,7 @@ func client(addr string, level int) (net.Conn, error) {
 	n := conn{
 		Conn:   c,
 		writer: c,
-		level:  level,
 		addr:   addr,
-	}
-	if level != nogzip {
-		n.writer, _ = gzip.NewWriterLevel(n.writer, level)
 	}
 	return &n, nil
 }
@@ -133,16 +103,9 @@ type conn struct {
 	net.Conn
 	writer io.Writer
 
-	addr  string
-	level int
+	addr string
 }
 
 func (c *conn) Write(bs []byte) (int, error) {
-	_, err := c.writer.Write(bs)
-	if err == nil {
-		if f, ok := c.writer.(*gzip.Writer); ok {
-			err = f.Flush()
-		}
-	}
-	return len(bs), err
+	return c.writer.Write(bs)
 }

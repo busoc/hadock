@@ -102,7 +102,7 @@ func (t *tarstore) storeMetadata(tb *roll.Tarball, i uint8, p *panda.Image) erro
 	}
 	dir, _ := t.tardir.Prepare(i, p)
 	h := roll.Header{
-		Name:    filepath.Join(dir, p.Filename() + XML),
+		Name:    filepath.Join(dir, p.Filename()+XML),
 		Size:    int64(w.Len()),
 		ModTime: p.Timestamp(),
 		Gid:     1000,
