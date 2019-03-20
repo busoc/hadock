@@ -29,6 +29,14 @@ For each packets received, hadock will:
 * summarize the status of the HRDL stream and generate processed parameters at
 regular interval for monitoring tools.
 
+hadock can support multiple type of storage:
+
+* file: data from HRDL packets are stored in individual file
+* tar: data from HRDL packets are stored in tar archive that will be automatically
+rotated under certain conditions
+* hrdp: each HRDL packets are stored in files similar to the RT files found in
+the HRDP archive.
+
 the ``replay`` command has been initially written to develop and test the protocol
 used by  hadock ``listen`` in order to process incoming HRDL packets.
 
