@@ -1,0 +1,10 @@
+[Unit]
+After=network.target mount.target
+Description=high rate data broker aka hadock (distribution)
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/hadock distrib -q /etc/hadock/%i.toml
+Restart=always
+RestartSec=1
+

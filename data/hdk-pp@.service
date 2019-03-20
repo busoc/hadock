@@ -1,0 +1,10 @@
+[Unit]
+After=network.target
+Description=marshal Hadock binary PPs to protobuff encoded PPs
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/hdk2udp /etc/hadock/%i.toml
+Restart=always
+RestartSec=1
+

@@ -1,0 +1,10 @@
+[Unit]
+After=network.target mount.target
+Description=high rate data broker aka hadock
+
+[Service]
+Type=simple
+ExecStart=/usr/bin/hadock listen /etc/hadock/%i.toml
+Restart=always
+RestartSec=10
+
