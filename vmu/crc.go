@@ -1,8 +1,8 @@
 package vmu
 
 import (
-  "encoding/binary"
-  "hash"
+	"encoding/binary"
+	"hash"
 )
 
 type hrdlSum struct {

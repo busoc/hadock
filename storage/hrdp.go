@@ -18,7 +18,7 @@ import (
 
 type hrdpstore struct {
 	datadir string
-	encode func(io.Writer, uint8, panda.HRPacket) error
+	encode  func(io.Writer, uint8, panda.HRPacket) error
 
 	writer io.WriteCloser
 }
@@ -36,8 +36,9 @@ func NewHRDPStorage(o Options) (Storage, error) {
 	}
 	h := hrdpstore{datadir: o.Location}
 	options := []roll.Option{
-		WithTimeout(time.Duration(o.Timeout) * time.Second),
-		WithInterval(time.Duration(o.Interval) * time.Second),
+		roll.WithThreshold(o.MaxSize, o.MaxCount),
+		roll.WithTimeout(time.Duration(o.Timeout) * time.Second),
+		roll.WithInterval(time.Duration(o.Interval) * time.Second),
 	}
 
 	switch strings.ToLower(o.Format) {
@@ -73,8 +74,8 @@ func (h *hrdpstore) Open(_ int, w time.Time) (io.WriteCloser, []io.Closer, error
 		return nil, nil, err
 	}
 	file := filepath.Join(datadir, fmt.Sprintf("hdk_%s.dat", w.Format("150405")))
-  wc, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
-  return wc, nil, err
+	wc, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	return wc, nil, err
 }
 
 func encodeHadock(ws io.Writer, i uint8, p panda.HRPacket) error {

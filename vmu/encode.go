@@ -120,7 +120,7 @@ func encodeImage(ws io.Writer, p *panda.Image) error {
 
 	binary.Write(ws, binary.BigEndian, uint32(HRDLMagic))
 	binary.Write(ws, binary.LittleEndian, size)
-	
+
 	digest := SumHRDL()
 	ws = io.MultiWriter(ws, digest)
 	if err := encodeVMUHeader(ws, p.VMUHeader); err != nil {
