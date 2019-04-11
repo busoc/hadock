@@ -63,7 +63,7 @@ func (t *tarstore) Store(i uint8, p panda.HRPacket) error {
 	k := cacheKey(i, p)
 	w, ok := t.caches[k]
 	if !ok {
-		tb, err := roll.Roll(nextFunc(filepath.Join(t.datadir, k, p.Origin())), t.options...)
+		tb, err := roll.Roll(nextFunc(filepath.Join(t.datadir, k)), t.options...)
 		if err != nil {
 			return err
 		}
