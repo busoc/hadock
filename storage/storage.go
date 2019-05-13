@@ -60,14 +60,18 @@ type Options struct {
 	Compress bool   `toml:"compress"`
 	KeepBad  bool   `toml:"keep-bad"`
 	// Instances []uint8 `toml:"instances"`
-	Timeout int `toml:"timeout"`
 
 	Control `toml:"control"`
 
-	Interval int        `toml:"interval"`
-	Epoch    string     `toml:"time"`
-	Levels   []string   `toml:"levels"`
-	Shares   []*Options `toml:"share"`
+	// rolling option
+	Interval int `toml:"interval"`
+	Timeout  int `toml:"timeout"`
+	MaxSize  int `toml:"maxsize"`
+	MaxCount int `toml:"maxcount"`
+
+	Epoch  string     `toml:"time"`
+	Levels []string   `toml:"levels"`
+	Shares []*Options `toml:"share"`
 
 	Link string `toml:"link"`
 }

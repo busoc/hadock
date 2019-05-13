@@ -17,8 +17,10 @@ import (
 )
 
 type hrdpstore struct {
+	datadir string
+	encode  func(io.Writer, uint8, panda.HRPacket) error
+
 	writer io.WriteCloser
-	encode func(io.Writer, uint8, panda.HRPacket) error
 }
 
 // instance (1) + type (1) + mode (1) + origin (1) + sequence (4) + when (4) + upi (32) + data (len(payload))
@@ -32,21 +34,13 @@ func NewHRDPStorage(o Options) (Storage, error) {
 	if !i.IsDir() {
 		return nil, fmt.Errorf("%s: not a directory", o.Location)
 	}
-	var h hrdpstore
-	os := roll.Options{
-		MaxSize:   64 << 20,
-		Interval:  time.Duration(o.Interval) * time.Second,
-		Timeout:   time.Duration(o.Timeout) * time.Second,
-		KeepEmpty: false,
-		Next: func(i int, w time.Time) (string, error) {
-			y := fmt.Sprintf("%04d", w.Year())
-			d := fmt.Sprintf("%03d", w.YearDay())
-			h := fmt.Sprintf("%02d", w.Hour())
-
-			n := fmt.Sprintf("hdk_%06d_%02d-%02d.bin", i, w.Minute(), w.Second())
-			return filepath.Join(y, d, h, n), nil
-		},
+	h := hrdpstore{datadir: o.Location}
+	options := []roll.Option{
+		roll.WithThreshold(o.MaxSize, o.MaxCount),
+		roll.WithTimeout(time.Duration(o.Timeout) * time.Second),
+		roll.WithInterval(time.Duration(o.Interval) * time.Second),
 	}
+
 	switch strings.ToLower(o.Format) {
 	case "hrdp", "vmu":
 		h.encode = encodeHRDP
@@ -55,11 +49,10 @@ func NewHRDPStorage(o Options) (Storage, error) {
 	default:
 		return nil, fmt.Errorf("unknown format %q", o.Format)
 	}
-	h.writer, err = roll.Buffer(o.Location, os)
+	h.writer, err = roll.Roll(h.Open, options...)
 	if err != nil {
 		return nil, err
 	}
-	// h.buffer = make([]byte, 8<<20)
 	return &h, nil
 }
 
@@ -69,6 +62,20 @@ func (h *hrdpstore) Close() error {
 
 func (h *hrdpstore) Store(i uint8, p panda.HRPacket) error {
 	return h.encode(h.writer, i, p)
+}
+
+func (h *hrdpstore) Open(_ int, w time.Time) (io.WriteCloser, []io.Closer, error) {
+	year := fmt.Sprintf("%04d", w.Year())
+	doy := fmt.Sprintf("%03d", w.YearDay())
+	hour := fmt.Sprintf("%02d", w.Hour())
+
+	datadir := filepath.Join(h.datadir, year, doy, hour)
+	if err := os.MkdirAll(datadir, 0755); err != nil {
+		return nil, nil, err
+	}
+	file := filepath.Join(datadir, fmt.Sprintf("hdk_%s.dat", w.Format("150405")))
+	wc, err := os.OpenFile(file, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+	return wc, nil, err
 }
 
 func encodeHadock(ws io.Writer, i uint8, p panda.HRPacket) error {

@@ -37,7 +37,7 @@ func EncodePacket(ws io.Writer, p panda.HRPacket, hrdp bool) error {
 }
 
 func encodeHRDPHeader(ws io.Writer, p panda.HRPacket) error {
-	size := uint32(HRDPHeaderLen + HRDLSyncLen + VMUHLen)
+	size := uint32(HRDPHeaderLen + HRDLSyncLen + VMUHLen + 4)
 	switch c := p.Stream(); c {
 	case panda.Science:
 		size += SDHLenV2
@@ -89,6 +89,9 @@ func encodeTable(ws io.Writer, p *panda.Table) error {
 
 	binary.Write(ws, binary.BigEndian, uint32(HRDLMagic))
 	binary.Write(ws, binary.LittleEndian, size)
+
+	digest := SumHRDL()
+	ws = io.MultiWriter(ws, digest)
 	if err := encodeVMUHeader(ws, p.VMUHeader); err != nil {
 		return err
 	}
@@ -104,7 +107,9 @@ func encodeTable(ws io.Writer, p *panda.Table) error {
 	binary.Write(ws, binary.LittleEndian, s.Id)
 	ws.Write(s.Info[:])
 	ws.Write(body)
-	// binary.Write(ws, binary.LittleEndian, p.Sum)
+
+	sum := digest.Sum32()
+	binary.Write(ws, binary.LittleEndian, sum)
 
 	return nil
 }
@@ -115,6 +120,9 @@ func encodeImage(ws io.Writer, p *panda.Image) error {
 
 	binary.Write(ws, binary.BigEndian, uint32(HRDLMagic))
 	binary.Write(ws, binary.LittleEndian, size)
+
+	digest := SumHRDL()
+	ws = io.MultiWriter(ws, digest)
 	if err := encodeVMUHeader(ws, p.VMUHeader); err != nil {
 		return err
 	}
@@ -136,6 +144,9 @@ func encodeImage(ws io.Writer, p *panda.Image) error {
 	binary.Write(ws, binary.LittleEndian, i.Ratio)
 	ws.Write(i.Info[:])
 	ws.Write(body)
+
+	sum := digest.Sum32()
+	binary.Write(ws, binary.LittleEndian, sum)
 
 	return nil
 }
