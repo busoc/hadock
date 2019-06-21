@@ -248,8 +248,8 @@ func ListenPackets(a string, size int, p proxy, decode decodeFunc, is []uint8) (
 }
 
 type module struct {
-	Location string   `json:"location"`
-	Config   []string `json:"config"`
+	Location string   `toml:"location"`
+	Config   []string `toml:"config"`
 }
 
 func setupModules(ms []module) (hadock.Module, error) {
