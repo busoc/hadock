@@ -4,12 +4,15 @@ import (
 	"bytes"
 	"crypto/md5"
 	"encoding/binary"
+	"encoding/xml"
 	"errors"
 	"fmt"
 	"image"
 	"image/gif"
 	"image/jpeg"
 	"image/png"
+	// "image/draw"
+	"image/color"
 	"io"
 	"net/http"
 	"os"
@@ -21,6 +24,7 @@ import (
 	"github.com/busoc/hadock/internal/science"
 	"github.com/busoc/panda"
 	"github.com/gorilla/handlers"
+	"golang.org/x/image/draw"
 )
 
 var (
@@ -28,6 +32,72 @@ var (
 	ErrNotFound       = errors.New("not found")
 	ErrNotImplemented = errors.New("not implemented")
 )
+
+type transformer interface {
+	Transform(image.Image) image.Image
+}
+
+type scaling struct {
+	SizeX uint16 `xml:"size-x"`
+	SizeY uint16 `xml:"size-y"`
+	Force uint8 `xml:"force-aspect-ratio"`
+}
+
+func (s *scaling) IsZero() bool {
+	return s.SizeX == 0 && s.SizeY == 0
+}
+
+func (s *scaling) Transform(i image.Image) image.Image {
+	if s == nil || s.IsZero() {
+		return i
+	}
+	n, d := emptyImage(i, image.Rect(0, 0, int(s.SizeX), int(s.SizeY)))
+	if d == nil {
+		return n
+	}
+	draw.NearestNeighbor.Scale(d, d.Bounds(), i, i.Bounds(), draw.Src, nil)
+	return d
+}
+
+type region struct {
+	SizeX   uint16 `xml:"size-x"`
+	OffsetX uint16 `xml:"offset-x"`
+	SizeY   uint16 `xml:"size-y"`
+	OffsetY uint16 `xml:"offset-y"`
+}
+
+func (r *region) IsZero() bool {
+	return r.SizeX == 0 && r.SizeY == 0
+}
+
+func (r *region) Transform(i image.Image) image.Image {
+	if r == nil || r.IsZero() {
+		return i
+	}
+	n, d := emptyImage(i, image.Rect(0, 0, int(r.SizeX), int(r.SizeY)))
+	if d == nil {
+		return n
+	}
+	roi := image.Rect(int(r.OffsetX), int(r.OffsetY), int(r.SizeX), int(r.SizeY))
+	draw.Draw(d, roi, i, image.ZP, draw.Src)
+	return d
+}
+
+func emptyImage(i image.Image, r image.Rectangle) (image.Image, draw.Image) {
+	switch m := i.ColorModel(); m {
+	default:
+		return i, nil
+	case color.RGBAModel:
+		return nil, image.NewRGBA(r)
+	case color.GrayModel:
+		return nil, image.NewGray(r)
+	case color.Gray16Model:
+		return nil, image.NewGray16(r)
+	case color.YCbCrModel:
+		y := i.(*image.YCbCr)
+		return y.SubImage(r), nil
+	}
+}
 
 type fetcher struct {
 	rawdir  string
@@ -70,7 +140,7 @@ func (f *file) AsScience() (io.Reader, error) {
 	return &r, err
 }
 
-func (f *file) AsImage(t string) (io.Reader, error) {
+func (f *file) AsImage(t string, ts []transformer) (io.Reader, error) {
 	var x, y uint16
 	binary.Read(f.buf, binary.BigEndian, &x)
 	binary.Read(f.buf, binary.BigEndian, &y)
@@ -101,6 +171,9 @@ func (f *file) AsImage(t string) (io.Reader, error) {
 	}
 	if err != nil {
 		return nil, err
+	}
+	for _, t := range ts {
+		i = t.Transform(i)
 	}
 	w := new(bytes.Buffer)
 	switch t {
@@ -206,7 +279,18 @@ func (f fetcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case MimeOctet:
 		rs, err = bs.AsRaw()
 	case MimeGif, MimeJPG, MimePNG:
-		rs, err = bs.AsImage(mime.SubType())
+		m := struct {
+			SizeX int `xml:"pixels>x"`
+			SizeY int `xml:"pixels>y"`
+			Region *region `xml:"region"`
+			Scale  *scaling `xml:"scaling"`
+		}{}
+		r, err := os.Open(filepath.Join(f.rawdir, r.URL.Path)+".xml")
+		if err == nil {
+			defer r.Close()
+			xml.NewDecoder(r).Decode(&m)
+		}
+		rs, err = bs.AsImage(mime.SubType(), []transformer{m.Region, m.Scale})
 	case MimeCSV:
 		rs, err = bs.AsScience()
 	}
