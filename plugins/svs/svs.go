@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"github.com/busoc/hadock"
+	"github.com/busoc/panda"
 	"github.com/midbel/toml"
 )
 
@@ -68,8 +69,8 @@ func New(f string) (hadock.Module, error) {
 	return &converter{dir: c.Datadir, origin: c.Origin, granul: c.Granul}, nil
 }
 
-func (c *converter) Process(i uint8, p mud.HRPacket) error {
-	if p.Version() != mud.VMUProtocol2 || p.Origin() != c.origin {
+func (c *converter) Process(i uint8, p panda.HRPacket) error {
+	if p.Version() != panda.VMUProtocol2 || p.Origin() != c.origin {
 		return nil
 	}
 	dir, _ := joinPath(c.dir, p, i, c.granul, c.alt)
@@ -101,7 +102,7 @@ func (c *converter) Process(i uint8, p mud.HRPacket) error {
 	return nil
 }
 
-func process(p mud.HRPacket) (*bytes.Buffer, bool, error) {
+func process(p panda.HRPacket) (*bytes.Buffer, bool, error) {
 	buf := new(bytes.Buffer)
 
 	bs := p.Payload()
@@ -152,12 +153,12 @@ func decodeMeta(bs []byte) metadata {
 		d uint64
 	)
 	binary.Read(r, binary.LittleEndian, &d)
-	m.Acquisition = mud.AdjustGenerationTime(int64(d)) // mud.GPS.Add(time.Duration(d))
+	m.Acquisition = panda.AdjustGenerationTime(int64(d)) // panda.GPS.Add(time.Duration(d))
 
 	binary.Read(r, binary.LittleEndian, &m.Sequence)
 
 	binary.Read(r, binary.LittleEndian, &d)
-	m.Auxiliary = mud.AdjustGenerationTime(int64(d)) // mud.GPS.Add(time.Duration(d))
+	m.Auxiliary = panda.AdjustGenerationTime(int64(d)) // panda.GPS.Add(time.Duration(d))
 
 	binary.Read(r, binary.LittleEndian, &m.Source)
 	binary.Read(r, binary.LittleEndian, &m.X)
@@ -181,7 +182,7 @@ func decodeMeta(bs []byte) metadata {
 	return m
 }
 
-func joinPath(base string, v mud.HRPacket, i uint8, g int, a bool) (string, error) {
+func joinPath(base string, v panda.HRPacket, i uint8, g int, a bool) (string, error) {
 	switch i {
 	case hadock.TEST:
 		base = path.Join(base, "TEST")
@@ -194,9 +195,9 @@ func joinPath(base string, v mud.HRPacket, i uint8, g int, a bool) (string, erro
 	}
 	var t time.Time
 	switch v := v.(type) {
-	case *mud.Table:
+	case *panda.Table:
 		base, t = path.Join(base, "sciences"), v.VMUHeader.Timestamp()
-	case *mud.Image:
+	case *panda.Image:
 		base, t = path.Join(base, "images"), v.VMUHeader.Timestamp()
 	}
 	if v.IsRealtime() {
@@ -212,7 +213,7 @@ func joinPath(base string, v mud.HRPacket, i uint8, g int, a bool) (string, erro
 }
 
 func joinPathTime(base string, t time.Time, g int) string {
-	t = mud.AdjustGenerationTime(t.Unix())
+	t = panda.AdjustGenerationTime(t.Unix())
 	y := fmt.Sprintf("%04d", t.Year())
 	d := fmt.Sprintf("%03d", t.YearDay())
 	h := fmt.Sprintf("%02d", t.Hour())
