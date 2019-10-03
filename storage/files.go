@@ -71,16 +71,23 @@ func (f *filestore) Store(i uint8, p panda.HRPacket) error {
 	if !f.Can(p) {
 		return nil
 	}
-	var w bytes.Buffer
-	filename := p.Filename()
-	badname := filename + BAD
-	if err := f.encode(&w, p); err != nil {
-		return fmt.Errorf("%s not written: %s", filename, err)
-	}
 	dir, err := f.data.Prepare(i, p)
 	if err != nil {
 		return err
 	}
+	var w bytes.Buffer
+	filename := p.Filename()
+	if f.rembad && !panda.Valid(p) {
+		i, err := os.Stat(path.Join(dir, filename))
+		if err == nil && i.Mode().IsRegular() {
+			return nil
+		}
+	}
+	badname := filename + BAD
+	if err := f.encode(&w, p); err != nil {
+		return fmt.Errorf("%s not written: %s", filename, err)
+	}
+
 	if !p.IsRealtime() && f.rembad {
 		os.Remove(path.Join(dir, badname))
 	}

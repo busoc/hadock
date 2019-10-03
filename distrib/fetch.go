@@ -40,7 +40,7 @@ type transformer interface {
 type scaling struct {
 	SizeX uint16 `xml:"size-x"`
 	SizeY uint16 `xml:"size-y"`
-	Force uint8 `xml:"force-aspect-ratio"`
+	Force uint8  `xml:"force-aspect-ratio"`
 }
 
 func (s *scaling) IsZero() bool {
@@ -280,12 +280,12 @@ func (f fetcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rs, err = bs.AsRaw()
 	case MimeGif, MimeJPG, MimePNG:
 		m := struct {
-			SizeX int `xml:"pixels>x"`
-			SizeY int `xml:"pixels>y"`
-			Region *region `xml:"region"`
+			SizeX  int      `xml:"pixels>x"`
+			SizeY  int      `xml:"pixels>y"`
+			Region *region  `xml:"region"`
 			Scale  *scaling `xml:"scaling"`
 		}{}
-		r, err := os.Open(filepath.Join(f.rawdir, r.URL.Path)+".xml")
+		r, err := os.Open(filepath.Join(f.rawdir, r.URL.Path) + ".xml")
 		if err == nil {
 			defer r.Close()
 			xml.NewDecoder(r).Decode(&m)
