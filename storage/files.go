@@ -88,7 +88,7 @@ func (f *filestore) Store(i uint8, p panda.HRPacket) error {
 		return fmt.Errorf("%s not written: %s", filename, err)
 	}
 
-	if !p.IsRealtime() && f.rembad {
+	if f.rembad {
 		os.Remove(path.Join(dir, badname))
 	}
 	file := path.Join(dir, filename)
