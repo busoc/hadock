@@ -21,7 +21,7 @@ type tarstore struct {
 
 	options []roll.Option
 	datadir string
-	tardir  *dirmaker
+	tardir  Directory
 
 	mu     sync.Mutex
 	caches map[string]*roll.Roller
@@ -35,12 +35,8 @@ func NewArchiveStorage(o Options) (Storage, error) {
 	if !i.IsDir() {
 		return nil, fmt.Errorf("%s: not a directory", o.Location)
 	}
-	dm := dirmaker{
-		Levels:   checkLevels(o.Levels, []string{LevelClassic, LevelVMUTime}),
-		Base:     "",
-		Time:     o.Epoch,
-		Interval: o.Interval,
-	}
+	dm := NewDirectory("", o.Epoch, o.Levels, o.Interval)
+
 	options := []roll.Option{
 		roll.WithThreshold(o.MaxSize, o.MaxCount),
 		roll.WithTimeout(time.Duration(o.Timeout) * time.Second),
@@ -50,7 +46,7 @@ func NewArchiveStorage(o Options) (Storage, error) {
 		Control: o.Control,
 		datadir: o.Location,
 		options: options,
-		tardir:  &dm,
+		tardir:  dm,
 		caches:  make(map[string]*roll.Roller),
 	}
 	return &t, nil

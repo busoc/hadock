@@ -10,7 +10,6 @@ import (
 	"path"
 	"sort"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/busoc/hadock"
@@ -136,23 +135,20 @@ type dirmaker struct {
 	Base     string   `toml:"location"`
 	Time     string   `toml:"time"`
 	Interval int      `toml:"-"`
-
-	mu    sync.Mutex
-	cache map[string]time.Time
 }
 
-func (d *dirmaker) clean() {
-	every := time.Tick(time.Minute)
-	five := time.Minute * 5
-	for t := range every {
-		d.mu.Lock()
-		for k, v := range d.cache {
-			if t.Sub(v) >= five {
-				delete(d.cache, k)
-			}
-		}
-		d.mu.Unlock()
+type Directory interface {
+	Prepare(uint8, panda.HRPacket) (string, error)
+}
+
+func NewDirectory(base, time string, levels []string, interval int) Directory {
+	d := dirmaker{
+		Levels:   checkLevels(levels, []string{LevelClassic, LevelVMUTime}),
+		Base:     base,
+		Time:     time,
+		Interval: interval,
 	}
+	return &d
 }
 
 func (d *dirmaker) Prepare(i uint8, p panda.HRPacket) (string, error) {
@@ -168,15 +164,8 @@ func (d *dirmaker) Prepare(i uint8, p panda.HRPacket) (string, error) {
 		t = p.Timestamp()
 	}
 	base := prepareDirectory(d.Base, d.Levels, d.Interval, i, p, t)
-	if d.cache != nil {
-		d.mu.Lock()
-		defer d.mu.Unlock()
-		if _, ok := d.cache[base]; !ok {
-			if err := os.MkdirAll(base, 0755); err != nil && !os.IsExist(err) {
-				return "", err
-			}
-		}
-		d.cache[base] = time.Now()
+	if err := os.MkdirAll(base, 0755); err != nil && !os.IsExist(err) {
+		return "", err
 	}
 	return base, nil
 }

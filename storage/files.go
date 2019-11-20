@@ -7,7 +7,6 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
-	"time"
 
 	"github.com/busoc/panda"
 )
@@ -20,7 +19,7 @@ const (
 type filestore struct {
 	Control
 
-	data   *dirmaker
+	data   Directory
 	rembad bool
 	encode func(io.Writer, panda.HRPacket) error
 
@@ -35,19 +34,12 @@ func NewLocalStorage(o Options) (Storage, error) {
 	if !i.IsDir() {
 		return nil, fmt.Errorf("%s: not a directory", o.Location)
 	}
-	dm := dirmaker{
-		Levels:   checkLevels(o.Levels, []string{LevelClassic, LevelVMUTime}),
-		Base:     o.Location,
-		Time:     o.Epoch,
-		Interval: o.Interval,
-		cache:    make(map[string]time.Time),
-	}
-	go dm.clean()
+	dm := NewDirectory(o.Location, o.Epoch, o.Levels, o.Interval)
 
 	s := filestore{
 		Control: o.Control,
 		rembad:  !o.KeepBad,
-		data:    &dm,
+		data:    dm,
 	}
 	for _, o := range o.Shares {
 		k, err := newLinkStorage(*o)
@@ -137,7 +129,7 @@ func (f *filestore) linkToShare(link string, i uint8, p panda.HRPacket) error {
 type linkstore struct {
 	link   string
 	rembad bool
-	data   *dirmaker
+	data   Directory
 }
 
 func newLinkStorage(o Options) (*linkstore, error) {
@@ -148,14 +140,9 @@ func newLinkStorage(o Options) (*linkstore, error) {
 	if !i.IsDir() {
 		return nil, fmt.Errorf("%s: not a directory", o.Location)
 	}
-	dm := dirmaker{
-		Levels:   checkLevels(o.Levels, []string{LevelClassic, LevelACQTime}),
-		Base:     o.Location,
-		Time:     o.Epoch,
-		Interval: o.Interval,
-		cache:    make(map[string]time.Time),
-	}
-	go dm.clean()
+
+	levels := checkLevels(o.Levels, []string{LevelClassic, LevelACQTime})
+	dm := NewDirectory(o.Location, o.Epoch, levels, o.Interval)
 
 	switch o.Link {
 	case "", "hard", "soft":
@@ -165,7 +152,7 @@ func newLinkStorage(o Options) (*linkstore, error) {
 	k := linkstore{
 		link:   o.Link,
 		rembad: !o.KeepBad,
-		data:   &dm,
+		data:   dm,
 	}
 	return &k, nil
 }
