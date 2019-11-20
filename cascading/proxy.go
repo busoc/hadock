@@ -5,6 +5,7 @@ import (
 	"io"
 	"io/ioutil"
 	"net"
+	"time"
 )
 
 const defaultSize = 4
@@ -42,6 +43,8 @@ var syncword = []byte{0xf8, 0x2e, 0x35, 0x53}
 
 func (p *proxy) Write(bs []byte) (int, error) {
 	if len(bs) == 0 || (bytes.HasPrefix(bs, syncword) && p.buffer.Len() > 0) {
+		defer p.buffer.Reset()
+
 		c, err := p.pop()
 		if err != nil {
 			return 0, nil
@@ -55,7 +58,6 @@ func (p *proxy) Write(bs []byte) (int, error) {
 				p.push(c)
 			}
 		}(c, xs)
-		p.buffer.Reset()
 	}
 
 	return p.buffer.Write(bs)
@@ -87,7 +89,8 @@ func (p *proxy) push(c net.Conn) {
 }
 
 func client(addr string) (net.Conn, error) {
-	c, err := net.Dial("tcp", addr)
+	// c, err := net.Dial("tcp", addr)
+	c, err := net.DialTimeout("tcp", addr, time.Second)
 	if err != nil {
 		return nil, err
 	}
