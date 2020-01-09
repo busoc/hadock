@@ -78,17 +78,25 @@ type Pool struct {
 }
 
 func NewPool(ns []Notifier, a, e time.Duration) *Pool {
-	q := make(chan *Item, 1000)
 	ms := make([]Notifier, len(ns))
 	copy(ms, ns)
 
-	p := &Pool{notifiers: ms, queue: q, limit: a}
-	go p.notify(e)
+	p := Pool{
+		notifiers: ms,
+		limit:     a,
+	}
+	if e > 0 {
+		p.queue = make(chan *Item, 1000)
+		go p.notify(e)
+	}
 
-	return p
+	return &p
 }
 
 func (p *Pool) Notify(i *Item) {
+	if p.queue == nil {
+		return
+	}
 	var t time.Time
 	switch v := i.HRPacket.(type) {
 	case *panda.Image:
