@@ -7,6 +7,7 @@ import (
 	"io/ioutil"
 	"os"
 	"path"
+	"strings"
 
 	"github.com/busoc/panda"
 )
@@ -69,8 +70,8 @@ func (f *filestore) Store(i uint8, p panda.HRPacket) error {
 	}
 	var w bytes.Buffer
 	filename := p.Filename()
-	if f.rembad && !panda.Valid(p) {
-		i, err := os.Stat(path.Join(dir, filename))
+	if f.rembad && path.Ext(filename) == BAD {
+		i, err := os.Stat(path.Join(dir, strings.TrimSuffix(filename, BAD)))
 		if err == nil && i.Mode().IsRegular() {
 			return nil
 		}
