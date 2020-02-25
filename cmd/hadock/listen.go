@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	// "compress/gzip"
 	"fmt"
 	"io"
 	"io/ioutil"
@@ -10,7 +9,6 @@ import (
 	"net"
 	"os"
 	"plugin"
-	// "sync/atomic"
 	"time"
 
 	"github.com/busoc/hadock"
@@ -19,7 +17,7 @@ import (
 	"github.com/busoc/panda"
 	"github.com/midbel/cli"
 	"github.com/midbel/toml"
-	"golang.org/x/sync/errgroup"
+	// "golang.org/x/sync/errgroup"
 )
 
 type proxy struct {
@@ -88,22 +86,58 @@ func runListen(cmd *cli.Command, args []string) error {
 		}()
 	}
 
-	var grp errgroup.Group
 	for i := range Convert(ps, int(c.Buffer)) {
-		i := i
-		grp.Go(func() error {
-			if err := fs.Store(uint8(i.Instance), i.HRPacket); err != nil {
-				log.Printf("storing VMU packet %s failed: %s", i.HRPacket.Filename(), err)
-			}
-			pool.Notify(i)
-			select {
-			case queue <- i:
-			default:
-			}
-			return nil
-		})
+		if err := fs.Store(uint8(i.Instance), i.HRPacket); err != nil {
+			log.Printf("storing VMU packet %s failed: %s", i.HRPacket.Filename(), err)
+		}
+		pool.Notify(i)
+		select {
+		case queue <- i:
+		default:
+		}
 	}
-	return grp.Wait()
+	return nil
+	// var (
+	// 	grp  errgroup.Group
+	// 	sema     = make(chan struct{}, int(c.Parallel))
+	// 	sentinel = struct{}{}
+	// 	skipped int
+	// 	total   int
+	// )
+	// go func() {
+	// 	t := time.Tick(time.Second)
+	// 	logger := log.New(os.Stderr, "[dbg] ", 0)
+	// 	for range t {
+	// 		if total > 0 {
+	// 			logger.Printf("%6d total, %6d skipped", total, skipped)
+	// 		}
+	// 		total, skipped = 0, 0
+	// 	}
+	// }()
+	// defer close(sema)
+	// for i := range Convert(ps, int(c.Buffer)) {
+	// 	total++
+	// 	select {
+	// 	case sema <- sentinel:
+	// 	default:
+	// 		skipped++
+	// 		continue
+	// 	}
+	// 	i := i
+	// 	grp.Go(func() error {
+	// 		if err := fs.Store(uint8(i.Instance), i.HRPacket); err != nil {
+	// 			log.Printf("storing VMU packet %s failed: %s", i.HRPacket.Filename(), err)
+	// 		}
+	// 		pool.Notify(i)
+	// 		select {
+	// 		case queue <- i:
+	// 		default:
+	// 		}
+	// 		<-sema
+	// 		return nil
+	// 	})
+	// }
+	// return grp.Wait()
 }
 
 func Decode(mode string) (decodeFunc, error) {
@@ -113,16 +147,6 @@ func Decode(mode string) (decodeFunc, error) {
 		df = hadock.DecodeCompressedPackets
 	case "binary", "":
 		df = hadock.DecodeBinaryPackets
-	// case "binary+gzip":
-	// 	df = func(r io.Reader, is []uint8) <-chan *hadock.Packet {
-	// 		if _, ok := r.(io.ByteReader); ok {
-	// 			r = bufio.NewReader(r)
-	// 		}
-	// 		if rs, err := gzip.NewReader(r); err == nil {
-	// 			r = rs
-	// 		}
-	// 		return hadock.DecodeBinaryPackets(r, is)
-	// 	}
 	default:
 		return nil, fmt.Errorf("unsupported working mode %s", mode)
 	}
@@ -226,7 +250,6 @@ func ListenPackets(a string, size int, p proxy, decode decodeFunc, is []uint8) (
 			if c, ok := c.(*net.TCPConn); ok {
 				c.SetKeepAlive(true)
 				c.SetKeepAlivePeriod(time.Second * 90)
-				c.SetReadBuffer(8 << 20)
 			}
 			go func(c net.Conn) {
 				defer c.Close()
@@ -236,11 +259,10 @@ func ListenPackets(a string, size int, p proxy, decode decodeFunc, is []uint8) (
 					defer c.Close()
 					r = io.TeeReader(r, c)
 				}
-				rs := bufio.NewReader(r)
+				rs := bufio.NewReaderSize(r, 32<<20)
 				for p := range decode(rs, is) {
 					q <- p
 				}
-				//log.Printf("connection closed: %s", c.RemoteAddr())
 			}(c)
 		}
 	}()
