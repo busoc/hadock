@@ -1,5 +1,3 @@
-[![Go Report Card](https://goreportcard.com/badge/github.com/busoc/hadock)](https://goreportcard.com/report/github.com/busoc/hadock)
-
 the high rate data brocker AKA hadock has been developped to support high rate data
 activities in the frame of FSL operations at B.USOC.
 
