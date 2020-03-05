@@ -9,42 +9,48 @@ import (
 	"io"
 	"io/ioutil"
 	"os"
-	"path"
+	"path/filepath"
 	"strconv"
 	"time"
 
 	"github.com/busoc/hadock"
+	"github.com/busoc/hadock/storage"
+	"github.com/busoc/panda"
 	"github.com/midbel/toml"
 )
 
-const magic = 0x90
+const origin = "90"
 
-const metaLength = 74
+type UPI [32]byte
+
+func (u UPI) MarshalXML(e *xml.Encoder, _ xml.StartElement) error {
+	xs := u[:]
+	xs = bytes.Trim(xs, "\x00")
+	return e.EncodeElement(string(xs), xml.StartElement{Name: xml.Name{Local: "upi"}})
+}
 
 type metadata struct {
-	Source      uint8     `xml:"originator-id"`
-	Sequence    uint32    `xml:"originator-seq-no"`
-	Acquisition time.Time `xml:"acquisition-time"`
-	Auxiliary   time.Time `xml:"auxiliary-time"`
-	X           uint16    `xml:"source-x-size"`
-	Y           uint16    `xml:"source-y-size"`
-	Format      uint8     `xml:"format"`
-	Drop        uint16    `xml:"fdrp"`
-	OffsetX     uint16    `xml:"roi-x-offset"`
-	SizeX       uint16    `xml:"roi-x-size"`
-	OffsetY     uint16    `xml:"roi-y-offset"`
-	SizeY       uint16    `xml:"roi-y-size"`
-	ScaleX      uint16    `xml:"scale-x-size"`
-	ScaleY      uint16    `xml:"scale-y-size"`
-	Ratio       uint8     `xml:"scale-far"`
-	UPI         string    `xml:"user-packet-info"`
+	Magic       uint8         `xml:"-"`
+	Acquisition time.Duration `xml:"acquisition-time"`
+	Sequence    uint32        `xml:"originator-seq-no"`
+	Auxiliary   time.Duration `xml:"auxiliary-time"`
+	Source      uint8         `xml:"originator-id"`
+	X           uint16        `xml:"source-x-size"`
+	Y           uint16        `xml:"source-y-size"`
+	Format      uint8         `xml:"format"`
+	Drop        uint16        `xml:"fdrp"`
+	OffsetX     uint16        `xml:"roi-x-offset"`
+	SizeX       uint16        `xml:"roi-x-size"`
+	OffsetY     uint16        `xml:"roi-y-offset"`
+	SizeY       uint16        `xml:"roi-y-size"`
+	ScaleX      uint16        `xml:"scale-x-size"`
+	ScaleY      uint16        `xml:"scale-y-size"`
+	Ratio       uint8         `xml:"scale-far"`
+	UPI         UPI           `xml:"user-packet-info"`
 }
 
 type converter struct {
-	dir    string
-	origin string
-	alt    bool
-	granul int
+	dir storage.Directory
 }
 
 func New(f string) (hadock.Module, error) {
@@ -54,171 +60,101 @@ func New(f string) (hadock.Module, error) {
 	}
 	defer r.Close()
 	c := struct {
-		Origin  string `toml:"origin"`
-		Datadir string `toml:"datadir"`
-		Type    string `toml:"type"`
-		Granul  int    `toml:"interval"`
+		Datadir  string   `toml:"datadir"`
+		Epoch    string   `toml:"time"`
+		Interval int      `toml:"interval"`
+		Levels   []string `toml:"levels"`
 	}{}
 	if err := toml.NewDecoder(r).Decode(&c); err != nil {
 		return nil, err
 	}
-	if err := os.MkdirAll(c.Datadir, 0755); err != nil && !os.IsExist(err) {
-		return nil, err
+	conv := converter{
+		dir: storage.NewDirectory(c.Datadir, c.Epoch, c.Levels, c.Interval),
 	}
-	return &converter{dir: c.Datadir, origin: c.Origin, granul: c.Granul}, nil
+	return &conv, nil
 }
 
-func (c *converter) Process(i uint8, p mud.HRPacket) error {
-	if p.Version() != mud.VMUProtocol2 || p.Origin() != c.origin {
+func (c *converter) Process(i uint8, p panda.HRPacket) error {
+	if p.Version() != panda.VMUProtocol2 || p.Origin() != origin {
 		return nil
 	}
-	dir, _ := joinPath(c.dir, p, i, c.granul, c.alt)
-	if err := os.MkdirAll(dir, 0755); err != nil && !os.IsExist(err) {
-		return err
+	if p.Sequence() == 1 {
+		return c.processIntro(i, p)
 	}
-	buf, dat, err := process(p)
+	dir, err := c.dir.Prepare(i, p)
 	if err != nil {
 		return err
 	}
-	e := ".csv"
-	if !dat {
-		e = ".ini"
-	}
+	file := filepath.Join(dir, p.Filename())
 
-	n := p.Filename() + e
-	if err := ioutil.WriteFile(path.Join(dir, n), buf.Bytes(), 0644); err != nil {
+	rs := bytes.NewReader(p.Payload())
+	if err := c.processMeta(file, rs); err != nil {
 		return err
 	}
-	if dat {
-		e := xml.NewEncoder(buf)
-		e.Indent("", "\t")
-		buf.Reset()
-		if err := e.Encode(decodeMeta(p.Payload())); err != nil {
-			return err
-		}
-		return ioutil.WriteFile(path.Join(dir, n+".xml"), buf.Bytes(), 0644)
-	}
-	return nil
+	return c.processData(file, rs)
 }
 
-func process(p mud.HRPacket) (*bytes.Buffer, bool, error) {
-	buf := new(bytes.Buffer)
-
-	bs := p.Payload()
-	if bs[0] != magic {
-		buf.Write(bs)
-		return buf, false, nil
-	}
-	r := bytes.NewReader(bs[metaLength:])
-	n, err := r.ReadByte()
+func (c *converter) processData(file string, rs *bytes.Reader) error {
+	w, err := os.Create(file + ".csv")
 	if err != nil {
-		return nil, false, err
+		return err
 	}
-	w := csv.NewWriter(buf)
+	defer w.Close()
 
-	vs := make([]string, int(n)+1)
+	ws := csv.NewWriter(w)
+
+	b, err := rs.ReadByte()
+	if err != nil {
+		return err
+	}
+	vs := make([]string, int(b)+1)
 	vs[0] = "t"
-	for i, j := int(n), 0; j < i; j++ {
+	for j := 0; j < int(b); j++ {
 		var v uint16
-		if err := binary.Read(r, binary.LittleEndian, &v); err != nil {
-			return nil, false, err
+		if err := binary.Read(rs, binary.LittleEndian, &v); err != nil {
+			return err
 		}
 		vs[j+1] = fmt.Sprintf("g2(t, %d)", v)
 	}
-	w.Write(vs)
-	if err := w.Error(); err != nil {
-		return nil, false, err
-	}
-	for i := 0; r.Len() > 0; i++ {
+	ws.Write(vs)
+	for i := 0; rs.Len() > 0; i++ {
 		vs[0] = strconv.Itoa(i)
-		for j := 0; j < int(n); j++ {
+		for j := 0; j < int(b); j++ {
 			var v float32
-			if err := binary.Read(r, binary.LittleEndian, &v); err != nil {
-				return nil, false, err
+			if err := binary.Read(rs, binary.LittleEndian, &v); err != nil {
+				return err
 			}
 			vs[j+1] = strconv.FormatFloat(float64(v), 'f', -1, 32)
 		}
-		w.Write(vs)
+		ws.Write(vs)
 	}
-	w.Flush()
-	return buf, true, w.Error()
+
+	ws.Flush()
+	return ws.Error()
 }
 
-func decodeMeta(bs []byte) metadata {
-	r := bytes.NewReader(bs[1:])
-
-	var (
-		m metadata
-		d uint64
-	)
-	binary.Read(r, binary.LittleEndian, &d)
-	m.Acquisition = mud.AdjustGenerationTime(int64(d)) // mud.GPS.Add(time.Duration(d))
-
-	binary.Read(r, binary.LittleEndian, &m.Sequence)
-
-	binary.Read(r, binary.LittleEndian, &d)
-	m.Auxiliary = mud.AdjustGenerationTime(int64(d)) // mud.GPS.Add(time.Duration(d))
-
-	binary.Read(r, binary.LittleEndian, &m.Source)
-	binary.Read(r, binary.LittleEndian, &m.X)
-	binary.Read(r, binary.LittleEndian, &m.Y)
-	binary.Read(r, binary.LittleEndian, &m.Format)
-	binary.Read(r, binary.LittleEndian, &m.Drop)
-	binary.Read(r, binary.LittleEndian, &m.OffsetX)
-	binary.Read(r, binary.LittleEndian, &m.SizeX)
-	binary.Read(r, binary.LittleEndian, &m.OffsetY)
-	binary.Read(r, binary.LittleEndian, &m.SizeY)
-	binary.Read(r, binary.LittleEndian, &m.ScaleX)
-	binary.Read(r, binary.LittleEndian, &m.ScaleY)
-	binary.Read(r, binary.LittleEndian, &m.Ratio)
-
-	upi := make([]byte, 32)
-	io.ReadFull(r, upi)
-	if bs := bytes.Trim(upi, "\x00"); len(bs) > 0 {
-		m.UPI = string(bs)
+func (c *converter) processMeta(file string, r io.Reader) error {
+	var info metadata
+	if err := binary.Read(r, binary.LittleEndian, &info); err != nil {
+		return err
 	}
+	w, err := os.Create(file + ".xml")
+	if err != nil {
+		return err
+	}
+	defer w.Close()
 
-	return m
+	e := xml.NewEncoder(w)
+	e.Indent("", "\t")
+	return e.Encode(info)
 }
 
-func joinPath(base string, v mud.HRPacket, i uint8, g int, a bool) (string, error) {
-	switch i {
-	case hadock.TEST:
-		base = path.Join(base, "TEST")
-	case hadock.SIM1, hadock.SIM2:
-		base = path.Join(base, "SIM"+fmt.Sprint(i))
-	case hadock.OPS:
-		base = path.Join(base, "OPS")
-	default:
-		base = path.Join(base, "DATA")
+func (c *converter) processIntro(i uint8, p panda.HRPacket) error {
+	dir, err := c.dir.Prepare(i, p)
+	if err != nil {
+		return err
 	}
-	var t time.Time
-	switch v := v.(type) {
-	case *mud.Table:
-		base, t = path.Join(base, "sciences"), v.VMUHeader.Timestamp()
-	case *mud.Image:
-		base, t = path.Join(base, "images"), v.VMUHeader.Timestamp()
-	}
-	if v.IsRealtime() {
-		base = path.Join(base, "realtime", v.Origin())
-	} else {
-		base = path.Join(base, "playback", v.Origin())
-	}
-	if t.IsZero() || a {
-		t = v.Timestamp()
-	}
-
-	return joinPathTime(base, t, g), nil
-}
-
-func joinPathTime(base string, t time.Time, g int) string {
-	t = mud.AdjustGenerationTime(t.Unix())
-	y := fmt.Sprintf("%04d", t.Year())
-	d := fmt.Sprintf("%03d", t.YearDay())
-	h := fmt.Sprintf("%02d", t.Hour())
-	base = path.Join(base, y, d, h)
-	if m := t.Truncate(time.Second * time.Duration(g)); g > 0 {
-		base = path.Join(base, fmt.Sprintf("%02d", m.Minute()))
-	}
-	return base
+	raw := p.Payload()
+	file := filepath.Join(dir, p.Filename()+".ini")
+	return ioutil.WriteFile(file, raw[:len(raw)-4], 0755)
 }

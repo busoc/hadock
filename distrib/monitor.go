@@ -101,7 +101,7 @@ func (m *monitor) Monitor(r io.ReadCloser, n int) {
 			w = new(pool)
 			w.ms = make([]*message, n)
 		}
-		u, _ := uuid.UUID4()
+		u := uuid.UUID4()
 
 		w.when = time.Now()
 		w.ms[i%n] = &message{

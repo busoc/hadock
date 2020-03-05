@@ -129,8 +129,8 @@ func DecodeBinaryPackets(r io.Reader, is []uint8) <-chan *Packet {
 				if len(is) > 0 && (ix >= len(is) || is[ix] != p.Instance) {
 					break
 				}
-				if s := sum.Sum1071Bis(bs.Next(bs.Len()-2)); s != p.Sum {
-					log.Printf("invalid checksum: want %04x, got %04x", p.Sum, s)
+				if s := sum.Sum1071Bis(bs.Next(bs.Len() - 2)); s != p.Sum {
+					//log.Printf("invalid checksum: want %04x, got %04x", p.Sum, s)
 				}
 				q <- p
 			case io.EOF, ErrUnsupportedProtocol, ErrUnsupportedVMUVersion:
@@ -144,7 +144,6 @@ func DecodeBinaryPackets(r io.Reader, is []uint8) <-chan *Packet {
 	}()
 	return q
 }
-
 
 func EncodePacket(p *Packet) ([]byte, error) {
 	w := new(bytes.Buffer)

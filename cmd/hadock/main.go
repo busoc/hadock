@@ -1,11 +1,6 @@
 package main
 
 import (
-	"log"
-	"os"
-	"path/filepath"
-	"text/template"
-
 	"github.com/midbel/cli"
 )
 
@@ -25,7 +20,7 @@ Use {{.Name}} [command] -h for more information about its usage.
 
 var commands = []*cli.Command{
 	{
-		Usage: "replay [-r] [-s] [-m] [-t] <host:port> <archive,...",
+		Usage: "replay [-r] [-s] [-m] [-t] <host:port> <archive...>",
 		Short: "send VMU packets throught the network from a HRDP archive",
 		Run:   runReplay,
 	},
@@ -44,29 +39,32 @@ var commands = []*cli.Command{
 		Short: "monitor hadock activities",
 		Run:   runMonitor,
 	},
+	{
+		Usage: "dispatch <directory>",
+		Short: "",
+		Run:   runDispatch,
+	},
 }
 
 func init() {
-	cli.Version = "0.4.2"
-	cli.BuildTime = "2019-01-22 07:45:00"
+	cli.Version = "0.6.2"
+	cli.BuildTime = "2020-01-21 12:40:00"
 }
 
 func main() {
-	log.SetFlags(0)
-	usage := func() {
-		data := struct {
-			Name     string
-			Commands []*cli.Command
-		}{
-			Name:     filepath.Base(os.Args[0]),
-			Commands: commands,
-		}
-		t := template.Must(template.New("help").Parse(helpText))
-		t.Execute(os.Stderr, data)
-
-		os.Exit(2)
-	}
-	if err := cli.Run(commands, usage, nil); err != nil {
-		log.Fatalln(err)
-	}
+	// log.SetFlags(0)
+	// usage := func() {
+	// 	data := struct {
+	// 		Name     string
+	// 		Commands []*cli.Command
+	// 	}{
+	// 		Name:     filepath.Base(os.Args[0]),
+	// 		Commands: commands,
+	// 	}
+	// 	t := template.Must(template.New("help").Parse(helpText))
+	// 	t.Execute(os.Stderr, data)
+	//
+	// 	os.Exit(2)
+	// }
+	cli.RunAndExit(commands, cli.Usage("hadock", helpText, commands))
 }

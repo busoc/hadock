@@ -12,9 +12,9 @@ import (
 	"path/filepath"
 	"time"
 
-	"github.com/juju/ratelimit"
 	"github.com/busoc/hadock"
 	"github.com/busoc/panda"
+	"github.com/juju/ratelimit"
 	"github.com/midbel/cli"
 	"github.com/midbel/rustine/sum"
 )
@@ -91,7 +91,7 @@ func Replay(a string, s, t, m int, z cli.Size) (net.Conn, error) {
 	}
 	r := &replay{
 		Conn:    c,
-		inner: ratelimit.Writer(c, ratelimit.NewBucketWithRate(z.Float(), z.Int())),
+		inner:   ratelimit.Writer(c, ratelimit.NewBucketWithRate(z.Float(), z.Int())),
 		size:    s,
 		version: uint16(p)<<12 | uint16(t)<<8 | uint16(m),
 	}
@@ -223,5 +223,5 @@ func scanVMUPackets(bs []byte, ateof bool) (int, []byte, error) {
 	}
 	vs := make([]byte, size-panda.HRDPHeaderLength-panda.HRDLSyncLength)
 	copy(vs, bs[4+panda.HRDPHeaderLength+panda.HRDLSyncLength:])
-	return size+4, vs, nil
+	return size + 4, vs, nil
 }
