@@ -24,7 +24,7 @@ func runDispatch(cmd *cli.Command, args []string) error {
 		In  string `toml:"datadir"`
 		Out string `toml:""`
 	}{}
-	if err := toml.NewDecoder(r).Decode(&c); err != nil {
+	if err := toml.Decode(r, &c); err != nil {
 		return err
 	}
 

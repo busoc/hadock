@@ -30,7 +30,7 @@ func runDistrib(cmd *cli.Command, args []string) error {
 		Datadir string   `toml:"datadir"`
 		Groups  []string `toml:"groups"`
 	}{}
-	if err := toml.NewDecoder(f).Decode(&c); err != nil {
+	if err := toml.Decode(f, &c); err != nil {
 		return err
 	}
 	i, err := os.Stat(c.Rawdir)

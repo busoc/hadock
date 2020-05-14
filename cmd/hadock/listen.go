@@ -45,7 +45,7 @@ func runListen(cmd *cli.Command, args []string) error {
 		Pool      pool              `toml:"pool"`
 		Modules   []module          `toml:"module"`
 	}{}
-	if err := toml.NewDecoder(f).Decode(&c); err != nil {
+	if err := toml.Decode(f, &c); err != nil {
 		return err
 	} else {
 		f.Close()
