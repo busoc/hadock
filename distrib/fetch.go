@@ -285,16 +285,20 @@ func (f fetcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			Region *region  `xml:"region"`
 			Scale  *scaling `xml:"scaling"`
 		}{}
-		r, err := os.Open(filepath.Join(f.rawdir, r.URL.Path) + ".xml")
-		if err == nil {
-			defer r.Close()
-			xml.NewDecoder(r).Decode(&m)
+		var raw *os.File
+		raw, err = os.Open(filepath.Join(f.rawdir, r.URL.Path) + ".xml")
+		if err != nil {
+			break
+		}
+		defer raw.Close()
+		if err = xml.NewDecoder(raw).Decode(&m); err != nil {
+			break
 		}
 		rs, err = bs.AsImage(mime.SubType(), []transformer{m.Region, m.Scale})
 	case MimeCSV:
 		rs, err = bs.AsScience()
 	}
-	if err != nil {
+	if err != nil  {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
