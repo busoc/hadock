@@ -172,9 +172,9 @@ func (f *file) AsImage(t string, ts []transformer) (io.Reader, error) {
 	if err != nil {
 		return nil, err
 	}
-	for _, t := range ts {
-		i = t.Transform(i)
-	}
+	// for _, t := range ts {
+	// 	i = t.Transform(i)
+	// }
 	w := new(bytes.Buffer)
 	switch t {
 	case "jpg", "jpeg":
