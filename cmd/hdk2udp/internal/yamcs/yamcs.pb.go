@@ -319,7 +319,9 @@ func (x *ReplayStatus_ReplayState) UnmarshalJSON(data []byte) error {
 	*x = ReplayStatus_ReplayState(value)
 	return nil
 }
-func (ReplayStatus_ReplayState) EnumDescriptor() ([]byte, []int) { return fileDescriptor0, []int{21, 0} }
+func (ReplayStatus_ReplayState) EnumDescriptor() ([]byte, []int) {
+	return fileDescriptor0, []int{21, 0}
+}
 
 type Event_EventSeverity int32
 

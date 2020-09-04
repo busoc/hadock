@@ -213,7 +213,7 @@ func (f fetcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	case MimeCSV:
 		rs, err = bs.AsScience()
 	}
-	if err != nil  {
+	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
 		return
 	}
