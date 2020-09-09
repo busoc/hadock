@@ -33,6 +33,8 @@ type Message struct {
 	Elapsed   time.Duration `json:"elapsed"`
 	Generated int64         `json:"generated"`
 	Acquired  int64         `json:"acquired"`
+	Size      int64         `json:"size"`
+	Bad       int64         `json:"bad"`
 	Reference string        `json:"reference"`
 	UPI       string        `json:"upi"`
 }
@@ -162,6 +164,7 @@ func (p *Pool) notify(e time.Duration) {
 						Reference: first.Filename(),
 						UPI:       extractUserInfo(first),
 					}
+					m.Size, m.Bad = sizeAndBad(ps)
 					for _, n := range p.notifiers {
 						go n.Notify(m)
 					}
@@ -170,6 +173,20 @@ func (p *Pool) notify(e time.Duration) {
 			}
 		}
 	}
+}
+
+func sizeAndBad(ps []panda.HRPacket) (int64, int64) {
+	var (
+		size int64
+		bad  int64
+	)
+	for _, p := range ps {
+		if !panda.Valid(p) {
+			bad++
+		}
+		size += int64(len(p.Payload()))
+	}
+	return size, bad
 }
 
 func extractUserInfo(p panda.HRPacket) string {
@@ -272,6 +289,8 @@ func (n *notifier) Notify(m Message) error {
 	binary.Write(w, binary.BigEndian, m.Elapsed)
 	binary.Write(w, binary.BigEndian, m.Generated)
 	binary.Write(w, binary.BigEndian, m.Acquired)
+	binary.Write(w, binary.BigEndian, m.Size)
+	binary.Write(w, binary.BigEndian, m.Bad)
 	bs = []byte(m.Reference)
 	binary.Write(w, binary.BigEndian, uint16(len(bs)))
 	w.Write(bs)
