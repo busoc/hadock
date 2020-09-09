@@ -409,6 +409,8 @@ func decodeMessage(r io.Reader) (*hadock.Message, error) {
 	binary.Read(r, binary.BigEndian, &m.Elapsed)
 	binary.Read(r, binary.BigEndian, &m.Generated) // VMU timestamp
 	binary.Read(r, binary.BigEndian, &m.Acquired)  // HRD timestamp
+	binary.Read(r, binary.BigEndian, &m.Size)
+	binary.Read(r, binary.BigEndian, &m.Bad)
 	m.Reference, _ = readString(r)
 	m.UPI, _ = readString(r)
 
