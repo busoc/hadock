@@ -8,13 +8,13 @@ import (
 	"io"
 	"log"
 	"net"
-	"os"
 	"path"
 	"strings"
 	"sync"
 	"time"
 
 	"github.com/busoc/hadock"
+	"github.com/busoc/hadock/storage"
 	"github.com/busoc/hadock/cmd/hdk2udp/internal/pvalue"
 	"github.com/busoc/hadock/cmd/hdk2udp/internal/yamcs"
 	"github.com/busoc/panda"
@@ -25,16 +25,11 @@ import (
 
 func main() {
 	flag.Parse()
-	f, err := os.Open(flag.Arg(0))
-	if err != nil {
-		log.Fatalln(err)
-	}
-	defer f.Close()
 
 	c := struct {
 		Channels []channel `toml:"channel"`
 	}{}
-	if err := toml.NewDecoder(f).Decode(&c); err != nil {
+	if err := toml.DecodeFile(flag.Arg(0), &c); err != nil {
 		log.Fatalln(err)
 	}
 	var grp errgroup.Group
@@ -42,7 +37,7 @@ func main() {
 		r := c
 		grp.Go(func() error {
 			if len(r.Levels) == 0 {
-				r.Levels = []string{hadock.LevelClassic, hadock.LevelVMUTime}
+				r.Levels = []string{storage.LevelClassic, storage.LevelVMUTime}
 			}
 			defer log.Printf("done sending packets to %s", r.Link)
 			log.Printf("start sending packets to %s", r.Link)
@@ -168,32 +163,32 @@ func prepareReference(base string, levels []string, m *hadock.Message, g int, t 
 		switch strings.ToLower(n) {
 		default:
 			base = path.Join(base, n)
-		case hadock.LevelUPI:
+		case storage.LevelUPI:
 			base = path.Join(base, m.UPI)
-		case hadock.LevelClassic:
-			ns := []string{hadock.LevelInstance, hadock.LevelType, hadock.LevelMode, hadock.LevelSource}
+		case storage.LevelClassic:
+			ns := []string{storage.LevelInstance, storage.LevelType, storage.LevelMode, storage.LevelSource}
 			base = prepareReference(base, ns, m, g, t)
-		case hadock.LevelSource:
+		case storage.LevelSource:
 			base = path.Join(base, m.Origin)
-		case hadock.LevelInstance:
+		case storage.LevelInstance:
 			base = whichInstance(base, m)
-		case hadock.LevelType:
+		case storage.LevelType:
 			base = whichType(base, m)
-		case hadock.LevelMode:
+		case storage.LevelMode:
 			base = whichMode(base, m)
-		case hadock.LevelVMUTime:
-			ns := []string{hadock.LevelYear, hadock.LevelDay, hadock.LevelHour, hadock.LevelMin}
+		case storage.LevelVMUTime:
+			ns := []string{storage.LevelYear, storage.LevelDay, storage.LevelHour, storage.LevelMin}
 			base = prepareReference(base, ns, m, g, time.Unix(m.Generated, 0))
-		case hadock.LevelACQTime:
-			ns := []string{hadock.LevelYear, hadock.LevelDay, hadock.LevelHour, hadock.LevelMin}
+		case storage.LevelACQTime:
+			ns := []string{storage.LevelYear, storage.LevelDay, storage.LevelHour, storage.LevelMin}
 			base = prepareReference(base, ns, m, g, time.Unix(m.Acquired, 0))
-		case hadock.LevelYear:
+		case storage.LevelYear:
 			base = path.Join(base, fmt.Sprintf("%04d", t.Year()))
-		case hadock.LevelDay:
+		case storage.LevelDay:
 			base = path.Join(base, fmt.Sprintf("%03d", t.YearDay()))
-		case hadock.LevelHour:
+		case storage.LevelHour:
 			base = path.Join(base, fmt.Sprintf("%02d", t.Hour()))
-		case hadock.LevelMin:
+		case storage.LevelMin:
 			if m := t.Truncate(time.Second * time.Duration(g)); g > 0 {
 				base = path.Join(base, fmt.Sprintf("%02d", m.Minute()))
 			}
