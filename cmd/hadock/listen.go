@@ -19,27 +19,13 @@ import (
 	"github.com/busoc/panda"
 	"github.com/midbel/cli"
 	"github.com/midbel/toml"
-	// "golang.org/x/sync/errgroup"
-)
-
-var (
-	starts  = time.Now()
-	total   = expvar.NewInt("total")   //int64
-	image   = expvar.NewInt("image")   //int64
-	science = expvar.NewInt("science") //int64
-	skipped = expvar.NewInt("skipped") //int64
-	errors  = expvar.NewInt("errors")  //int64
-	size    = expvar.NewInt("size")    //int64
-	uptime  = expvar.Func(func() interface{} { return time.Since(starts).Seconds() })
 )
 
 func init() {
-	expvar.Publish("total", total)
-	expvar.Publish("image", image)
-	expvar.Publish("science", science)
-	expvar.Publish("skipped", skipped)
-	expvar.Publish("errors", errors)
-	expvar.Publish("size", size)
+	now := time.Now()
+	uptime := expvar.Func(func() interface{} {
+		return time.Since(now).Seconds()
+	})
 	expvar.Publish("uptime", uptime)
 }
 
@@ -146,6 +132,18 @@ func Decode(mode string) (decodeFunc, error) {
 
 func Convert(ps <-chan *hadock.Packet, n int) <-chan *hadock.Item {
 	q := make(chan *hadock.Item, n)
+
+	var (
+		starts  = time.Now()
+		total   = expvar.NewInt("total")   //int64
+		image   = expvar.NewInt("image")   //int64
+		science = expvar.NewInt("science") //int64
+		skipped = expvar.NewInt("skipped") //int64
+		errors  = expvar.NewInt("errors")  //int64
+		size    = expvar.NewInt("size")    //int64
+		uptime  = expvar.Func(func() interface{} { return time.Since(starts).Seconds() })
+	)
+
 	go func() {
 		logger := log.New(os.Stderr, "[hdk] ", 0)
 		tick := time.Tick(time.Second)
