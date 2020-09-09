@@ -107,6 +107,12 @@ func decodeMessage(r io.Reader) (*hadock.Message, error) {
 	if err = binary.Read(r, binary.BigEndian, &m.Acquired); err != nil {
 		return nil, err
 	}
+	if err = binary.Read(r, binary.BigEndian, &m.Size); err != nil {
+		return nil, err
+	}
+	if err = binary.Read(r, binary.BigEndian, &m.Bad); err != nil {
+		return nil, err
+	}
 	if m.Reference, err = readString(r); err != nil {
 		return nil, err
 	}
