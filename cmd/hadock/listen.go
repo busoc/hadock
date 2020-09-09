@@ -2,11 +2,13 @@ package main
 
 import (
 	"bufio"
+	"expvar"
 	"fmt"
 	"io"
 	"io/ioutil"
 	"log"
 	"net"
+	"net/http"
 	"os"
 	"plugin"
 	"time"
@@ -19,6 +21,27 @@ import (
 	"github.com/midbel/toml"
 	// "golang.org/x/sync/errgroup"
 )
+
+var (
+	starts  = time.Now()
+	total   = expvar.NewInt("total")   //int64
+	image   = expvar.NewInt("image")   //int64
+	science = expvar.NewInt("science") //int64
+	skipped = expvar.NewInt("skipped") //int64
+	errors  = expvar.NewInt("errors")  //int64
+	size    = expvar.NewInt("size")    //int64
+	uptime  = expvar.Func(func() interface{} { return time.Since(starts).Seconds() })
+)
+
+func init() {
+	expvar.Publish("total", total)
+	expvar.Publish("image", image)
+	expvar.Publish("science", science)
+	expvar.Publish("skipped", skipped)
+	expvar.Publish("errors", errors)
+	expvar.Publish("size", size)
+	expvar.Publish("uptime", uptime)
+}
 
 type proxy struct {
 	Addr string `toml:"address"`
@@ -37,6 +60,7 @@ func runListen(cmd *cli.Command, args []string) error {
 	}
 	c := struct {
 		Addr      string            `toml:"address"`
+		Mon       string            `toml:"monitor"`
 		Mode      string            `toml:"mode"`
 		Buffer    uint              `toml:"buffer"`
 		Proxy     proxy             `toml:"proxy"`
@@ -57,6 +81,14 @@ func runListen(cmd *cli.Command, args []string) error {
 	pool, err := setupPool(c.Pool)
 	if err != nil {
 		return err
+	}
+
+	if c.Mon != "" {
+		go func() {
+			if err := http.ListenAndServe(c.Mon, nil); err != nil {
+				log.Printf("monitor: fail to listen on %s: %s", c.Mon, err)
+			}
+		}()
 	}
 
 	df, err := Decode(c.Mode)
@@ -97,47 +129,6 @@ func runListen(cmd *cli.Command, args []string) error {
 		}
 	}
 	return nil
-	// var (
-	// 	grp  errgroup.Group
-	// 	sema     = make(chan struct{}, int(c.Parallel))
-	// 	sentinel = struct{}{}
-	// 	skipped int
-	// 	total   int
-	// )
-	// go func() {
-	// 	t := time.Tick(time.Second)
-	// 	logger := log.New(os.Stderr, "[dbg] ", 0)
-	// 	for range t {
-	// 		if total > 0 {
-	// 			logger.Printf("%6d total, %6d skipped", total, skipped)
-	// 		}
-	// 		total, skipped = 0, 0
-	// 	}
-	// }()
-	// defer close(sema)
-	// for i := range Convert(ps, int(c.Buffer)) {
-	// 	total++
-	// 	select {
-	// 	case sema <- sentinel:
-	// 	default:
-	// 		skipped++
-	// 		continue
-	// 	}
-	// 	i := i
-	// 	grp.Go(func() error {
-	// 		if err := fs.Store(uint8(i.Instance), i.HRPacket); err != nil {
-	// 			log.Printf("storing VMU packet %s failed: %s", i.HRPacket.Filename(), err)
-	// 		}
-	// 		pool.Notify(i)
-	// 		select {
-	// 		case queue <- i:
-	// 		default:
-	// 		}
-	// 		<-sema
-	// 		return nil
-	// 	})
-	// }
-	// return grp.Wait()
 }
 
 func Decode(mode string) (decodeFunc, error) {
@@ -155,26 +146,25 @@ func Decode(mode string) (decodeFunc, error) {
 
 func Convert(ps <-chan *hadock.Packet, n int) <-chan *hadock.Item {
 	q := make(chan *hadock.Item, n)
-	var (
-		total   int64
-		image   int64
-		science int64
-		skipped int64
-		errors  int64
-		size    int64
-	)
 	go func() {
 		logger := log.New(os.Stderr, "[hdk] ", 0)
 		tick := time.Tick(time.Second)
+
 		for range tick {
-			if total > 0 || skipped > 0 || errors > 0 {
-				logger.Printf("%6d total, %6d images, %6d sciences, %6d skipped, %6d errors, %7dKB", total, image, science, skipped, errors, size>>10)
-				size = 0
-				image = 0
-				science = 0
-				skipped = 0
-				errors = 0
-				total = 0
+			if total.Value() > 0 || skipped.Value() > 0 || errors.Value() > 0 {
+				logger.Printf("%6d total, %6d images, %6d sciences, %6d skipped, %6d errors, %7dKB",
+					total.Value(),
+					image.Value(),
+					science.Value(),
+					skipped.Value(),
+					errors.Value(),
+					size.Value()>>10)
+				size.Set(0)
+				image.Set(0)
+				science.Set(0)
+				skipped.Set(0)
+				errors.Set(0)
+				total.Set(0)
 			}
 		}
 	}()
@@ -193,35 +183,43 @@ func Convert(ps <-chan *hadock.Packet, n int) <-chan *hadock.Item {
 		for p := range ps {
 			d, ok := ds[int(p.Version)]
 			if !ok {
-				errors++
+				errors.Add(1)
+				// errors++
 				logger.Printf("no decoder available for version %d", p.Version)
 				continue
 			}
 			_, v, err := d.Decode(p.Payload)
 			if err != nil {
-				errors++
+				errors.Add(1)
+				// errors++
 				logger.Printf("decoding VMU packet failed: %s", err)
 				continue
 			}
 			var hr panda.HRPacket
 			switch v.(type) {
 			case *panda.Table:
-				science++
+				science.Add(1)
+				// science++
 				hr = v.(panda.HRPacket)
 			case *panda.Image:
-				image++
+				image.Add(1)
+				// image++
 				hr = v.(panda.HRPacket)
 			default:
-				errors++
+				errors.Add(1)
+				// errors++
 				logger.Println("unknown packet type - skipping")
 				continue
 			}
 			select {
 			case q <- &hadock.Item{int32(p.Instance), hr}:
-				total++
-				size += int64(len(p.Payload))
+				total.Add(1)
+				// total++
+				size.Add(int64(len(p.Payload)))
+				// size += int64(len(p.Payload))
 			default:
-				skipped++
+				skipped.Add(1)
+				// skipped++
 			}
 		}
 	}()
