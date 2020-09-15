@@ -134,21 +134,23 @@ func Convert(ps <-chan *hadock.Packet, n int) <-chan *hadock.Item {
 	q := make(chan *hadock.Item, n)
 
 	var (
-		starts  = time.Now()
 		total   = expvar.NewInt("total")   //int64
 		image   = expvar.NewInt("image")   //int64
 		science = expvar.NewInt("science") //int64
 		skipped = expvar.NewInt("skipped") //int64
 		errors  = expvar.NewInt("errors")  //int64
 		size    = expvar.NewInt("size")    //int64
-		uptime  = expvar.Func(func() interface{} { return time.Since(starts).Seconds() })
+		wait    = expvar.NewFloat("wait")
 	)
 
 	go func() {
 		logger := log.New(os.Stderr, "[hdk] ", 0)
-		tick := time.Tick(time.Second)
+		var (
+			tick = time.Tick(time.Second)
+			prev time.Time
+		)
 
-		for range tick {
+		for t := range tick {
 			if total.Value() > 0 || skipped.Value() > 0 || errors.Value() > 0 {
 				logger.Printf("%6d total, %6d images, %6d sciences, %6d skipped, %6d errors, %7dKB",
 					total.Value(),
@@ -163,6 +165,13 @@ func Convert(ps <-chan *hadock.Packet, n int) <-chan *hadock.Item {
 				skipped.Set(0)
 				errors.Set(0)
 				total.Set(0)
+				wait.Set(0)
+			} else {
+				if !prev.IsZero() {
+					elapsed := t.Sub(prev)
+					wait.Add(float64(elapsed.Milliseconds()))
+				}
+				prev = t
 			}
 		}
 	}()
