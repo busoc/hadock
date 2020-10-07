@@ -37,6 +37,47 @@ type Message struct {
 	UPI       string        `json:"upi"`
 }
 
+func DecodeMessage(r io.Reader) (Message, error) {
+	readString := func() (string, error) {
+		var z uint16
+		if err := binary.Read(r, binary.BigEndian, &z); err != nil {
+			return "", err
+		}
+		bs := make([]byte, int(z))
+		if _, err := io.ReadFull(r, bs); err != nil {
+			return "", err
+		}
+		return string(bs), nil
+	}
+	var (
+		msg Message
+		err error
+	)
+
+	msg.Origin, err = readString()
+	if err != nil {
+		return msg, err
+	}
+	binary.Read(r, binary.BigEndian, &msg.Sequence)
+	binary.Read(r, binary.BigEndian, &msg.Instance)
+	binary.Read(r, binary.BigEndian, &msg.Channel)
+	binary.Read(r, binary.BigEndian, &msg.Realtime)
+	binary.Read(r, binary.BigEndian, &msg.Count)
+	binary.Read(r, binary.BigEndian, &msg.Elapsed)
+	binary.Read(r, binary.BigEndian, &msg.Generated) // VMU timestamp
+	binary.Read(r, binary.BigEndian, &msg.Acquired)  // HRD timestamp
+	msg.Reference, err = readString()
+	if err != nil {
+		return msg, err
+	}
+	msg.UPI, err = readString()
+	if err != nil {
+		return msg, err
+	}
+
+	return msg, nil
+}
+
 type Options struct {
 	Source   string
 	Instance int32

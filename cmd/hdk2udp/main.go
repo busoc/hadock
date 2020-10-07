@@ -2,10 +2,8 @@ package main
 
 import (
 	"bufio"
-	"encoding/binary"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"path"
@@ -110,7 +108,7 @@ func (c channel) Run() error {
 			}()
 			r := bufio.NewReader(rc)
 			for {
-				m, err := decodeMessage(r)
+				m, err := hadock.DecodeMessage(r)
 				if err != nil {
 					log.Println("decoding hadock message failed:", err)
 					continue
@@ -351,46 +349,4 @@ func subscribe(a, i string) (net.Conn, error) {
 		ifi = i
 	}
 	return net.ListenMulticastUDP("udp", ifi, addr)
-}
-
-func decodeMessage(r io.Reader) (hadock.Message, error) {
-	var (
-		m   hadock.Message
-		err error
-	)
-
-	m.Origin, err = readString(r)
-	if err != nil {
-		return m, err
-	}
-	binary.Read(r, binary.BigEndian, &m.Sequence)
-	binary.Read(r, binary.BigEndian, &m.Instance)
-	binary.Read(r, binary.BigEndian, &m.Channel)
-	binary.Read(r, binary.BigEndian, &m.Realtime)
-	binary.Read(r, binary.BigEndian, &m.Count)
-	binary.Read(r, binary.BigEndian, &m.Elapsed)
-	binary.Read(r, binary.BigEndian, &m.Generated) // VMU timestamp
-	binary.Read(r, binary.BigEndian, &m.Acquired)  // HRD timestamp
-	m.Reference, err = readString(r)
-	if err != nil {
-		return m, err
-	}
-	m.UPI, err = readString(r)
-	if err != nil {
-		return m, err
-	}
-
-	return m, nil
-}
-
-func readString(r io.Reader) (string, error) {
-	var z uint16
-	if err := binary.Read(r, binary.BigEndian, &z); err != nil {
-		return "", err
-	}
-	bs := make([]byte, int(z))
-	if _, err := r.Read(bs); err != nil {
-		return "", err
-	}
-	return string(bs), nil
 }
