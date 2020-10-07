@@ -9,7 +9,7 @@ import (
 	"time"
 
 	"github.com/busoc/hadock"
-	//	"github.com/busoc/panda"
+	"github.com/busoc/panda"
 	"github.com/midbel/cli"
 )
 
@@ -39,8 +39,8 @@ func runMonitor(cmd *cli.Command, args []string) error {
 			m.Count,
 			m.Elapsed,
 			float64(m.Count)/m.Elapsed.Seconds(),
-			time.Unix(m.Generated, 0).Format(time.RFC3339),
-			//panda.AdjustGenerationTime(m.Generated).Format(time.RFC3339),
+			//time.Unix(m.Generated, 0).Format(time.RFC3339),
+			panda.AdjustGenerationTime(m.Generated).Format(time.RFC3339),
 			time.Unix(m.Acquired, 0).Format(time.RFC3339),
 			m.Reference,
 		)

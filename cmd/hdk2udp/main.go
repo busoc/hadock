@@ -116,7 +116,7 @@ func (c channel) Run() error {
 					continue
 				}
 				m.Reference = c.Prepare(m)
-				log.Printf("%#v", m)
+				log.Println(m.Reference)
 				q <- m
 			}
 		}(r)
@@ -178,10 +178,12 @@ func prepareReference(base string, levels []string, m hadock.Message, g int, t t
 			base = whichMode(base, m)
 		case storage.LevelVMUTime:
 			ns := []string{storage.LevelYear, storage.LevelDay, storage.LevelHour, storage.LevelMin}
-			base = prepareReference(base, ns, m, g, time.Unix(m.Generated, 0))
+			base = prepareReference(base, ns, m, g, t)
+			//base = prepareReference(base, ns, m, g, time.Unix(m.Generated, 0))
 		case storage.LevelACQTime:
 			ns := []string{storage.LevelYear, storage.LevelDay, storage.LevelHour, storage.LevelMin}
-			base = prepareReference(base, ns, m, g, time.Unix(m.Acquired, 0))
+			base = prepareReference(base, ns, m, g, t)
+			//base = prepareReference(base, ns, m, g, time.Unix(m.Acquired, 0))
 		case storage.LevelYear:
 			base = path.Join(base, fmt.Sprintf("%04d", t.Year()))
 		case storage.LevelDay:
@@ -230,45 +232,6 @@ func whichType(base string, m hadock.Message) string {
 		base = path.Join(base, "unknown")
 	}
 	return base
-}
-
-func reference(m hadock.Message, p string) string {
-	var ps []string
-	switch m.Instance {
-	case 0:
-		ps = append(ps, "TEST")
-	case 1, 2:
-		ps = append(ps, "SIM"+fmt.Sprint(m.Instance))
-	case 255:
-		ps = append(ps, "OPS")
-	}
-	switch m.Channel {
-	case 1, 2:
-		ps = append(ps, "images")
-	case 3:
-		ps = append(ps, "sciences")
-	}
-	if m.Realtime {
-		ps = append(ps, "realtime")
-	} else {
-		ps = append(ps, "playback")
-	}
-	ps = append(ps, m.Origin)
-
-	g := panda.GenerationTimeFromEpoch(m.Generated)
-	a := panda.UNIX.Add(time.Duration(g) * time.Millisecond)
-	ps = append(ps, fmt.Sprintf("%04d", a.Year()))
-	ps = append(ps, fmt.Sprintf("%03d", a.YearDay()))
-	ps = append(ps, fmt.Sprintf("%02d", a.Hour()))
-	ps = append(ps, fmt.Sprintf("%02d", a.Truncate(time.Minute*5).Minute()))
-
-	ps = append(ps, m.Reference)
-
-	rs := strings.Join(ps, "/")
-	if p != "" {
-		rs = p + "/" + rs
-	}
-	return "/" + rs
 }
 
 type value struct {
