@@ -257,29 +257,29 @@ func (n *notifier) Notify(m Message) error {
 	if err := n.Accept(m); err != nil {
 		return nil
 	}
-	w := new(bytes.Buffer)
-
-	var bs []byte
+	var (
+		buf bytes.Buffer
+		bs  []byte
+	)
 
 	bs = []byte(m.Origin)
-	binary.Write(w, binary.BigEndian, uint16(len(bs)))
-	w.Write(bs)
-	binary.Write(w, binary.BigEndian, m.Sequence)
-	binary.Write(w, binary.BigEndian, m.Instance)
-	binary.Write(w, binary.BigEndian, m.Channel)
-	binary.Write(w, binary.BigEndian, m.Realtime)
-	binary.Write(w, binary.BigEndian, m.Count)
-	binary.Write(w, binary.BigEndian, m.Elapsed)
-	binary.Write(w, binary.BigEndian, m.Generated)
-	binary.Write(w, binary.BigEndian, m.Acquired)
+	binary.Write(&buf, binary.BigEndian, uint16(len(bs)))
+	buf.Write(bs)
+	binary.Write(&buf, binary.BigEndian, m.Sequence)
+	binary.Write(&buf, binary.BigEndian, m.Instance)
+	binary.Write(&buf, binary.BigEndian, m.Channel)
+	binary.Write(&buf, binary.BigEndian, m.Realtime)
+	binary.Write(&buf, binary.BigEndian, m.Count)
+	binary.Write(&buf, binary.BigEndian, m.Elapsed)
+	binary.Write(&buf, binary.BigEndian, m.Generated)
+	binary.Write(&buf, binary.BigEndian, m.Acquired)
 	bs = []byte(m.Reference)
-	binary.Write(w, binary.BigEndian, uint16(len(bs)))
-	w.Write(bs)
+	binary.Write(&buf, binary.BigEndian, uint16(len(bs)))
+	buf.Write(bs)
 	bs = []byte(m.UPI)
-	binary.Write(w, binary.BigEndian, uint16(len(bs)))
-	w.Write(bs)
+	binary.Write(&buf, binary.BigEndian, uint16(len(bs)))
+	buf.Write(bs)
 
-	io.Copy(n.conn, w)
-
-	return nil
+	_, err := io.Copy(n.conn, &buf)
+	return err
 }
