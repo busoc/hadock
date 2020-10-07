@@ -178,12 +178,10 @@ func prepareReference(base string, levels []string, m hadock.Message, g int, t t
 			base = whichMode(base, m)
 		case storage.LevelVMUTime:
 			ns := []string{storage.LevelYear, storage.LevelDay, storage.LevelHour, storage.LevelMin}
-			base = prepareReference(base, ns, m, g, t)
-			//base = prepareReference(base, ns, m, g, time.Unix(m.Generated, 0))
+			base = prepareReference(base, ns, m, g, time.Unix(m.Generated, 0))
 		case storage.LevelACQTime:
 			ns := []string{storage.LevelYear, storage.LevelDay, storage.LevelHour, storage.LevelMin}
-			base = prepareReference(base, ns, m, g, t)
-			//base = prepareReference(base, ns, m, g, time.Unix(m.Acquired, 0))
+			base = prepareReference(base, ns, m, g, time.Unix(m.Acquired, 0))
 		case storage.LevelYear:
 			base = path.Join(base, fmt.Sprintf("%04d", t.Year()))
 		case storage.LevelDay:
