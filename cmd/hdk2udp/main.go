@@ -92,7 +92,7 @@ func (c channel) Run() error {
 	if err != nil {
 		return err
 	}
-	q := make(chan *hadock.Message, 100)
+	q := make(chan hadock.Message, 100)
 	defer close(q)
 	go sendTo(q, w, c.Name)
 
@@ -112,11 +112,11 @@ func (c channel) Run() error {
 			for {
 				m, err := decodeMessage(r)
 				if err != nil {
-					log.Println(err)
+					log.Println("decoding hadock message failed:", err)
 					continue
 				}
 				m.Reference = c.Prepare(m)
-				log.Println(m.Reference)
+				log.Printf("%#v", m)
 				q <- m
 			}
 		}(r)
@@ -125,7 +125,7 @@ func (c channel) Run() error {
 	return nil
 }
 
-func (c channel) Prepare(m *hadock.Message) string {
+func (c channel) Prepare(m hadock.Message) string {
 	var t time.Time
 	switch strings.ToLower(c.Time) {
 	case "acq":
@@ -141,7 +141,7 @@ func (c channel) Prepare(m *hadock.Message) string {
 	return ref
 }
 
-func sendTo(queue <-chan *hadock.Message, w net.Conn, n string) {
+func sendTo(queue <-chan hadock.Message, w net.Conn, n string) {
 	defer w.Close()
 
 	var i uint16
@@ -149,16 +149,16 @@ func sendTo(queue <-chan *hadock.Message, w net.Conn, n string) {
 		i++
 		bs, err := marshal(m, n, int32(i))
 		if err != nil {
-			log.Println(err)
+			log.Println("fail to prepare PP:", err)
 			continue
 		}
 		if _, err := w.Write(bs); err != nil {
-			log.Println(err)
+			log.Printf("fail to sendd PP to %s: %s", w.RemoteAddr(), err)
 		}
 	}
 }
 
-func prepareReference(base string, levels []string, m *hadock.Message, g int, t time.Time) string {
+func prepareReference(base string, levels []string, m hadock.Message, g int, t time.Time) string {
 	for _, n := range levels {
 		switch strings.ToLower(n) {
 		default:
@@ -197,7 +197,7 @@ func prepareReference(base string, levels []string, m *hadock.Message, g int, t 
 	return base
 }
 
-func whichInstance(base string, m *hadock.Message) string {
+func whichInstance(base string, m hadock.Message) string {
 	switch m.Instance {
 	case hadock.TEST:
 		base = path.Join(base, "TEST")
@@ -211,7 +211,7 @@ func whichInstance(base string, m *hadock.Message) string {
 	return base
 }
 
-func whichMode(base string, m *hadock.Message) string {
+func whichMode(base string, m hadock.Message) string {
 	if m.Realtime {
 		base = path.Join(base, "realtime")
 	} else {
@@ -220,7 +220,7 @@ func whichMode(base string, m *hadock.Message) string {
 	return base
 }
 
-func whichType(base string, m *hadock.Message) string {
+func whichType(base string, m hadock.Message) string {
 	switch m.Channel {
 	case 1, 2:
 		base = path.Join(base, "images")
@@ -232,7 +232,7 @@ func whichType(base string, m *hadock.Message) string {
 	return base
 }
 
-func reference(m *hadock.Message, p string) string {
+func reference(m hadock.Message, p string) string {
 	var ps []string
 	switch m.Instance {
 	case 0:
@@ -277,7 +277,7 @@ type value struct {
 	Value interface{}
 }
 
-func marshal(m *hadock.Message, n string, i int32) ([]byte, error) {
+func marshal(m hadock.Message, n string, i int32) ([]byte, error) {
 	w, t := time.Now().UTC().Unix(), m.Generated
 	adjw := panda.AcquisitionTimeFromEpoch(w)
 	adjt := panda.GenerationTimeFromEpoch(t)
@@ -392,10 +392,16 @@ func subscribe(a, i string) (net.Conn, error) {
 	return net.ListenMulticastUDP("udp", ifi, addr)
 }
 
-func decodeMessage(r io.Reader) (*hadock.Message, error) {
-	var m hadock.Message
+func decodeMessage(r io.Reader) (hadock.Message, error) {
+	var (
+		m   hadock.Message
+		err error
+	)
 
-	m.Origin, _ = readString(r)
+	m.Origin, err = readString(r)
+	if err != nil {
+		return m, err
+	}
 	binary.Read(r, binary.BigEndian, &m.Sequence)
 	binary.Read(r, binary.BigEndian, &m.Instance)
 	binary.Read(r, binary.BigEndian, &m.Channel)
@@ -404,10 +410,16 @@ func decodeMessage(r io.Reader) (*hadock.Message, error) {
 	binary.Read(r, binary.BigEndian, &m.Elapsed)
 	binary.Read(r, binary.BigEndian, &m.Generated) // VMU timestamp
 	binary.Read(r, binary.BigEndian, &m.Acquired)  // HRD timestamp
-	m.Reference, _ = readString(r)
-	m.UPI, _ = readString(r)
+	m.Reference, err = readString(r)
+	if err != nil {
+		return m, err
+	}
+	m.UPI, err = readString(r)
+	if err != nil {
+		return m, err
+	}
 
-	return &m, nil
+	return m, nil
 }
 
 func readString(r io.Reader) (string, error) {
