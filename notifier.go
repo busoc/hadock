@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/binary"
 	"fmt"
+	"hash/adler32"
 	"io"
 	"log"
 	"net"
@@ -12,6 +13,8 @@ import (
 
 	"github.com/busoc/panda"
 )
+
+const magic uint32 = 0x00
 
 type Notifier interface {
 	Accept(Message) error
@@ -37,6 +40,47 @@ type Message struct {
 	Bad       int64         `json:"bad"`
 	Reference string        `json:"reference"`
 	UPI       string        `json:"upi"`
+}
+
+func DecodeMessage(r io.Reader) (Message, error) {
+	readString := func() (string, error) {
+		var z uint16
+		if err := binary.Read(r, binary.BigEndian, &z); err != nil {
+			return "", err
+		}
+		bs := make([]byte, int(z))
+		if _, err := io.ReadFull(r, bs); err != nil {
+			return "", err
+		}
+		return string(bs), nil
+	}
+	var (
+		msg Message
+		err error
+	)
+
+	msg.Origin, err = readString()
+	if err != nil {
+		return msg, err
+	}
+	binary.Read(r, binary.BigEndian, &msg.Sequence)
+	binary.Read(r, binary.BigEndian, &msg.Instance)
+	binary.Read(r, binary.BigEndian, &msg.Channel)
+	binary.Read(r, binary.BigEndian, &msg.Realtime)
+	binary.Read(r, binary.BigEndian, &msg.Count)
+	binary.Read(r, binary.BigEndian, &msg.Elapsed)
+	binary.Read(r, binary.BigEndian, &msg.Generated) // VMU timestamp
+	binary.Read(r, binary.BigEndian, &msg.Acquired)  // HRD timestamp
+	msg.Reference, err = readString()
+	if err != nil {
+		return msg, err
+	}
+	msg.UPI, err = readString()
+	if err != nil {
+		return msg, err
+	}
+
+	return msg, nil
 }
 
 type Options struct {
@@ -274,31 +318,31 @@ func (n *notifier) Notify(m Message) error {
 	if err := n.Accept(m); err != nil {
 		return nil
 	}
-	w := new(bytes.Buffer)
-
-	var bs []byte
+	var (
+		bs  []byte
+		buf bytes.Buffer
+	)
 
 	bs = []byte(m.Origin)
-	binary.Write(w, binary.BigEndian, uint16(len(bs)))
-	w.Write(bs)
-	binary.Write(w, binary.BigEndian, m.Sequence)
-	binary.Write(w, binary.BigEndian, m.Instance)
-	binary.Write(w, binary.BigEndian, m.Channel)
-	binary.Write(w, binary.BigEndian, m.Realtime)
-	binary.Write(w, binary.BigEndian, m.Count)
-	binary.Write(w, binary.BigEndian, m.Elapsed)
-	binary.Write(w, binary.BigEndian, m.Generated)
-	binary.Write(w, binary.BigEndian, m.Acquired)
-	binary.Write(w, binary.BigEndian, m.Size)
-	binary.Write(w, binary.BigEndian, m.Bad)
+	binary.Write(&buf, binary.BigEndian, uint16(len(bs)))
+	buf.Write(bs)
+	binary.Write(&buf, binary.BigEndian, m.Sequence)
+	binary.Write(&buf, binary.BigEndian, m.Instance)
+	binary.Write(&buf, binary.BigEndian, m.Channel)
+	binary.Write(&buf, binary.BigEndian, m.Realtime)
+	binary.Write(&buf, binary.BigEndian, m.Count)
+	binary.Write(&buf, binary.BigEndian, m.Elapsed)
+	binary.Write(&buf, binary.BigEndian, m.Generated)
+	binary.Write(&buf, binary.BigEndian, m.Acquired)
+	binary.Write(&buf, binary.BigEndian, m.Size)
+	binary.Write(&buf, binary.BigEndian, m.Bad)
 	bs = []byte(m.Reference)
-	binary.Write(w, binary.BigEndian, uint16(len(bs)))
-	w.Write(bs)
+	binary.Write(&buf, binary.BigEndian, uint16(len(bs)))
+	buf.Write(bs)
 	bs = []byte(m.UPI)
-	binary.Write(w, binary.BigEndian, uint16(len(bs)))
-	w.Write(bs)
+	binary.Write(&buf, binary.BigEndian, uint16(len(bs)))
+	buf.Write(bs)
 
-	io.Copy(n.conn, w)
-
-	return nil
+	_, err := io.Copy(n.conn, &buf)
+	return err
 }

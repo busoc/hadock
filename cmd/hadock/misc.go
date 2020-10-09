@@ -2,7 +2,6 @@ package main
 
 import (
 	"bufio"
-	"encoding/binary"
 	"io"
 	"log"
 	"net"
@@ -22,7 +21,7 @@ func runMonitor(cmd *cli.Command, args []string) error {
 		return err
 	}
 	for {
-		m, err := decodeMessage(r)
+		m, err := hadock.DecodeMessage(r)
 		if err != nil {
 			log.Fatalln(err)
 		}
@@ -39,6 +38,7 @@ func runMonitor(cmd *cli.Command, args []string) error {
 			m.Count,
 			m.Elapsed,
 			float64(m.Count)/m.Elapsed.Seconds(),
+			//time.Unix(m.Generated, 0).Format(time.RFC3339),
 			panda.AdjustGenerationTime(m.Generated).Format(time.RFC3339),
 			time.Unix(m.Acquired, 0).Format(time.RFC3339),
 			m.Reference,
@@ -74,62 +74,4 @@ func readMessages(gs []string) (io.Reader, error) {
 		}(c)
 	}
 	return bufio.NewReader(pr), nil
-}
-
-func decodeMessage(r io.Reader) (*hadock.Message, error) {
-	var err error
-	m := new(hadock.Message)
-
-	if m.Origin, err = readString(r); err != nil {
-		return nil, err
-	}
-	if err = binary.Read(r, binary.BigEndian, &m.Sequence); err != nil {
-		return nil, err
-	}
-	if err = binary.Read(r, binary.BigEndian, &m.Instance); err != nil {
-		return nil, err
-	}
-	if err = binary.Read(r, binary.BigEndian, &m.Channel); err != nil {
-		return nil, err
-	}
-	if err = binary.Read(r, binary.BigEndian, &m.Realtime); err != nil {
-		return nil, err
-	}
-	if err = binary.Read(r, binary.BigEndian, &m.Count); err != nil {
-		return nil, err
-	}
-	if err = binary.Read(r, binary.BigEndian, &m.Elapsed); err != nil {
-		return nil, err
-	}
-	if err = binary.Read(r, binary.BigEndian, &m.Generated); err != nil {
-		return nil, err
-	}
-	if err = binary.Read(r, binary.BigEndian, &m.Acquired); err != nil {
-		return nil, err
-	}
-	if err = binary.Read(r, binary.BigEndian, &m.Size); err != nil {
-		return nil, err
-	}
-	if err = binary.Read(r, binary.BigEndian, &m.Bad); err != nil {
-		return nil, err
-	}
-	if m.Reference, err = readString(r); err != nil {
-		return nil, err
-	}
-	if m.UPI, err = readString(r); err != nil {
-		return nil, err
-	}
-	return m, nil
-}
-
-func readString(r io.Reader) (string, error) {
-	var z uint16
-	if err := binary.Read(r, binary.BigEndian, &z); err != nil {
-		return "", err
-	}
-	bs := make([]byte, int(z))
-	if _, err := r.Read(bs); err != nil {
-		return "", err
-	}
-	return string(bs), nil
 }

@@ -2,10 +2,8 @@ package main
 
 import (
 	"bufio"
-	"encoding/binary"
 	"flag"
 	"fmt"
-	"io"
 	"log"
 	"net"
 	"path"
@@ -92,7 +90,7 @@ func (c channel) Run() error {
 	if err != nil {
 		return err
 	}
-	q := make(chan *hadock.Message, 100)
+	q := make(chan hadock.Message, 100)
 	defer close(q)
 	go sendTo(q, w, c.Name)
 
@@ -110,9 +108,9 @@ func (c channel) Run() error {
 			}()
 			r := bufio.NewReader(rc)
 			for {
-				m, err := decodeMessage(r)
+				m, err := hadock.DecodeMessage(r)
 				if err != nil {
-					log.Println(err)
+					log.Println("decoding hadock message failed:", err)
 					continue
 				}
 				m.Reference = c.Prepare(m)
@@ -125,7 +123,7 @@ func (c channel) Run() error {
 	return nil
 }
 
-func (c channel) Prepare(m *hadock.Message) string {
+func (c channel) Prepare(m hadock.Message) string {
 	var t time.Time
 	switch strings.ToLower(c.Time) {
 	case "acq":
@@ -141,7 +139,7 @@ func (c channel) Prepare(m *hadock.Message) string {
 	return ref
 }
 
-func sendTo(queue <-chan *hadock.Message, w net.Conn, n string) {
+func sendTo(queue <-chan hadock.Message, w net.Conn, n string) {
 	defer w.Close()
 
 	var i uint16
@@ -149,16 +147,16 @@ func sendTo(queue <-chan *hadock.Message, w net.Conn, n string) {
 		i++
 		bs, err := marshal(m, n, int32(i))
 		if err != nil {
-			log.Println(err)
+			log.Println("fail to prepare PP:", err)
 			continue
 		}
 		if _, err := w.Write(bs); err != nil {
-			log.Println(err)
+			log.Printf("fail to sendd PP to %s: %s", w.RemoteAddr(), err)
 		}
 	}
 }
 
-func prepareReference(base string, levels []string, m *hadock.Message, g int, t time.Time) string {
+func prepareReference(base string, levels []string, m hadock.Message, g int, t time.Time) string {
 	for _, n := range levels {
 		switch strings.ToLower(n) {
 		default:
@@ -197,7 +195,7 @@ func prepareReference(base string, levels []string, m *hadock.Message, g int, t 
 	return base
 }
 
-func whichInstance(base string, m *hadock.Message) string {
+func whichInstance(base string, m hadock.Message) string {
 	switch m.Instance {
 	case hadock.TEST:
 		base = path.Join(base, "TEST")
@@ -211,7 +209,7 @@ func whichInstance(base string, m *hadock.Message) string {
 	return base
 }
 
-func whichMode(base string, m *hadock.Message) string {
+func whichMode(base string, m hadock.Message) string {
 	if m.Realtime {
 		base = path.Join(base, "realtime")
 	} else {
@@ -220,7 +218,7 @@ func whichMode(base string, m *hadock.Message) string {
 	return base
 }
 
-func whichType(base string, m *hadock.Message) string {
+func whichType(base string, m hadock.Message) string {
 	switch m.Channel {
 	case 1, 2:
 		base = path.Join(base, "images")
@@ -232,52 +230,13 @@ func whichType(base string, m *hadock.Message) string {
 	return base
 }
 
-func reference(m *hadock.Message, p string) string {
-	var ps []string
-	switch m.Instance {
-	case 0:
-		ps = append(ps, "TEST")
-	case 1, 2:
-		ps = append(ps, "SIM"+fmt.Sprint(m.Instance))
-	case 255:
-		ps = append(ps, "OPS")
-	}
-	switch m.Channel {
-	case 1, 2:
-		ps = append(ps, "images")
-	case 3:
-		ps = append(ps, "sciences")
-	}
-	if m.Realtime {
-		ps = append(ps, "realtime")
-	} else {
-		ps = append(ps, "playback")
-	}
-	ps = append(ps, m.Origin)
-
-	g := panda.GenerationTimeFromEpoch(m.Generated)
-	a := panda.UNIX.Add(time.Duration(g) * time.Millisecond)
-	ps = append(ps, fmt.Sprintf("%04d", a.Year()))
-	ps = append(ps, fmt.Sprintf("%03d", a.YearDay()))
-	ps = append(ps, fmt.Sprintf("%02d", a.Hour()))
-	ps = append(ps, fmt.Sprintf("%02d", a.Truncate(time.Minute*5).Minute()))
-
-	ps = append(ps, m.Reference)
-
-	rs := strings.Join(ps, "/")
-	if p != "" {
-		rs = p + "/" + rs
-	}
-	return "/" + rs
-}
-
 type value struct {
 	Local string
 	Name  string
 	Value interface{}
 }
 
-func marshal(m *hadock.Message, n string, i int32) ([]byte, error) {
+func marshal(m hadock.Message, n string, i int32) ([]byte, error) {
 	w, t := time.Now().UTC().Unix(), m.Generated
 	adjw := panda.AcquisitionTimeFromEpoch(w)
 	adjt := panda.GenerationTimeFromEpoch(t)
@@ -390,36 +349,4 @@ func subscribe(a, i string) (net.Conn, error) {
 		ifi = i
 	}
 	return net.ListenMulticastUDP("udp", ifi, addr)
-}
-
-func decodeMessage(r io.Reader) (*hadock.Message, error) {
-	var m hadock.Message
-
-	m.Origin, _ = readString(r)
-	binary.Read(r, binary.BigEndian, &m.Sequence)
-	binary.Read(r, binary.BigEndian, &m.Instance)
-	binary.Read(r, binary.BigEndian, &m.Channel)
-	binary.Read(r, binary.BigEndian, &m.Realtime)
-	binary.Read(r, binary.BigEndian, &m.Count)
-	binary.Read(r, binary.BigEndian, &m.Elapsed)
-	binary.Read(r, binary.BigEndian, &m.Generated) // VMU timestamp
-	binary.Read(r, binary.BigEndian, &m.Acquired)  // HRD timestamp
-	binary.Read(r, binary.BigEndian, &m.Size)
-	binary.Read(r, binary.BigEndian, &m.Bad)
-	m.Reference, _ = readString(r)
-	m.UPI, _ = readString(r)
-
-	return &m, nil
-}
-
-func readString(r io.Reader) (string, error) {
-	var z uint16
-	if err := binary.Read(r, binary.BigEndian, &z); err != nil {
-		return "", err
-	}
-	bs := make([]byte, int(z))
-	if _, err := r.Read(bs); err != nil {
-		return "", err
-	}
-	return string(bs), nil
 }
