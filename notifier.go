@@ -3,6 +3,7 @@ package hadock
 import (
 	"bytes"
 	"encoding/binary"
+	"errors"
 	"fmt"
 	"hash/adler32"
 	"io"
@@ -15,6 +16,11 @@ import (
 )
 
 const magic uint32 = 0x00
+
+var (
+	ErrMagic  = errors.New("invalid magic number")
+	ErrDigest = errors.New("checksum mismatched")
+)
 
 type Notifier interface {
 	Accept(Message) error
@@ -43,43 +49,60 @@ type Message struct {
 }
 
 func DecodeMessage(r io.Reader) (Message, error) {
-	readString := func() (string, error) {
+	readString := func(in io.Reader) (string, error) {
 		var z uint16
-		if err := binary.Read(r, binary.BigEndian, &z); err != nil {
+		if err := binary.Read(in, binary.BigEndian, &z); err != nil {
 			return "", err
 		}
 		bs := make([]byte, int(z))
-		if _, err := io.ReadFull(r, bs); err != nil {
+		if _, err := io.ReadFull(in, bs); err != nil {
 			return "", err
 		}
 		return string(bs), nil
 	}
 	var (
-		msg Message
-		err error
+		msg    Message
+		err    error
+		sum    uint32
+		mgc    uint32
+		digest = adler32.New()
+		in     = io.TeeReader(r, digest)
 	)
 
-	msg.Origin, err = readString()
+	if err := binary.Read(r, binary.BigEndian, &mgc); err != nil {
+		return msg, err
+	}
+	if mgc != magic {
+		return msg, fmt.Errorf("%w! want %08x, got %08x", magic, mgc)
+	}
+
+	msg.Origin, err = readString(in)
 	if err != nil {
 		return msg, err
 	}
-	binary.Read(r, binary.BigEndian, &msg.Sequence)
-	binary.Read(r, binary.BigEndian, &msg.Instance)
-	binary.Read(r, binary.BigEndian, &msg.Channel)
-	binary.Read(r, binary.BigEndian, &msg.Realtime)
-	binary.Read(r, binary.BigEndian, &msg.Count)
-	binary.Read(r, binary.BigEndian, &msg.Elapsed)
-	binary.Read(r, binary.BigEndian, &msg.Generated) // VMU timestamp
-	binary.Read(r, binary.BigEndian, &msg.Acquired)  // HRD timestamp
-	msg.Reference, err = readString()
+	binary.Read(in, binary.BigEndian, &msg.Sequence)
+	binary.Read(in, binary.BigEndian, &msg.Instance)
+	binary.Read(in, binary.BigEndian, &msg.Channel)
+	binary.Read(in, binary.BigEndian, &msg.Realtime)
+	binary.Read(in, binary.BigEndian, &msg.Count)
+	binary.Read(in, binary.BigEndian, &msg.Elapsed)
+	binary.Read(in, binary.BigEndian, &msg.Generated) // VMU timestamp
+	binary.Read(in, binary.BigEndian, &msg.Acquired)  // HRD timestamp
+	msg.Reference, err = readString(in)
 	if err != nil {
 		return msg, err
 	}
-	msg.UPI, err = readString()
+	msg.UPI, err = readString(in)
 	if err != nil {
 		return msg, err
 	}
 
+	if err := binary.Read(r, binary.BigEndian, &sum); err != nil {
+		return msg, err
+	}
+	if digest := digest.Sum32(); digest != sum {
+		return msg, fmt.Errorf("%w! want %08x, got %08x", ErrDigest, sum)
+	}
 	return msg, nil
 }
 
@@ -319,29 +342,35 @@ func (n *notifier) Notify(m Message) error {
 		return nil
 	}
 	var (
-		bs  []byte
-		buf bytes.Buffer
+		bs     []byte
+		buf    bytes.Buffer
+		digest = adler32.New()
+		out    = io.MultiWriter(&buf, digest)
 	)
 
+	binary.Write(&buf, binary.BigEndian, magic)
+
 	bs = []byte(m.Origin)
-	binary.Write(&buf, binary.BigEndian, uint16(len(bs)))
+	binary.Write(out, binary.BigEndian, uint16(len(bs)))
 	buf.Write(bs)
-	binary.Write(&buf, binary.BigEndian, m.Sequence)
-	binary.Write(&buf, binary.BigEndian, m.Instance)
-	binary.Write(&buf, binary.BigEndian, m.Channel)
-	binary.Write(&buf, binary.BigEndian, m.Realtime)
-	binary.Write(&buf, binary.BigEndian, m.Count)
-	binary.Write(&buf, binary.BigEndian, m.Elapsed)
-	binary.Write(&buf, binary.BigEndian, m.Generated)
-	binary.Write(&buf, binary.BigEndian, m.Acquired)
-	binary.Write(&buf, binary.BigEndian, m.Size)
-	binary.Write(&buf, binary.BigEndian, m.Bad)
+	binary.Write(out, binary.BigEndian, m.Sequence)
+	binary.Write(out, binary.BigEndian, m.Instance)
+	binary.Write(out, binary.BigEndian, m.Channel)
+	binary.Write(out, binary.BigEndian, m.Realtime)
+	binary.Write(out, binary.BigEndian, m.Count)
+	binary.Write(out, binary.BigEndian, m.Elapsed)
+	binary.Write(out, binary.BigEndian, m.Generated)
+	binary.Write(out, binary.BigEndian, m.Acquired)
+	binary.Write(out, binary.BigEndian, m.Size)
+	binary.Write(out, binary.BigEndian, m.Bad)
 	bs = []byte(m.Reference)
-	binary.Write(&buf, binary.BigEndian, uint16(len(bs)))
+	binary.Write(out, binary.BigEndian, uint16(len(bs)))
 	buf.Write(bs)
 	bs = []byte(m.UPI)
-	binary.Write(&buf, binary.BigEndian, uint16(len(bs)))
+	binary.Write(out, binary.BigEndian, uint16(len(bs)))
 	buf.Write(bs)
+
+	binary.Write(&buf, binary.BigEndian, digest.Sum32())
 
 	_, err := io.Copy(n.conn, &buf)
 	return err
