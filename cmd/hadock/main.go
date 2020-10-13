@@ -46,25 +46,6 @@ var commands = []*cli.Command{
 	},
 }
 
-func init() {
-	cli.Version = "0.6.4"
-	cli.BuildTime = "2020-09-18 10:05:00"
-}
-
 func main() {
-	// log.SetFlags(0)
-	// usage := func() {
-	// 	data := struct {
-	// 		Name     string
-	// 		Commands []*cli.Command
-	// 	}{
-	// 		Name:     filepath.Base(os.Args[0]),
-	// 		Commands: commands,
-	// 	}
-	// 	t := template.Must(template.New("help").Parse(helpText))
-	// 	t.Execute(os.Stderr, data)
-	//
-	// 	os.Exit(2)
-	// }
 	cli.RunAndExit(commands, cli.Usage("hadock", helpText, commands))
 }

@@ -1,7 +1,7 @@
 package main
 
 import (
-	"bufio"
+	"bytes"
 	"flag"
 	"fmt"
 	"log"
@@ -106,9 +106,18 @@ func (c channel) Run() error {
 				rc.Close()
 				wg.Done()
 			}()
-			r := bufio.NewReader(rc)
+			//r := bufio.NewReader(rc)
+			buf := make([]byte, 4096)
 			for {
-				m, err := hadock.DecodeMessage(r)
+				n, err := rc.Read(buf)
+				if err != nil {
+					log.Printf("unexpected error while reading PP from %s: %s", rc.RemoteAddr(), err)
+					continue
+				}
+				if n == 0 {
+					continue
+				}
+				m, err := hadock.DecodeMessage(bytes.NewBuffer(buf[:n]))
 				if err != nil {
 					log.Println("decoding hadock message failed:", err)
 					continue
@@ -129,7 +138,8 @@ func (c channel) Prepare(m hadock.Message) string {
 	case "acq":
 		t = time.Unix(m.Acquired, 0)
 	default:
-		t = time.Unix(m.Generated, 0)
+		when := panda.GenerationTimeFromEpoch(m.Generated) / 1000
+		t = time.Unix(when, 0)
 	}
 	base := prepareReference(c.Prefix, c.Levels, m, c.Interval, t)
 	ref := path.Join(base, m.Reference)
@@ -175,8 +185,9 @@ func prepareReference(base string, levels []string, m hadock.Message, g int, t t
 		case storage.LevelMode:
 			base = whichMode(base, m)
 		case storage.LevelVMUTime:
+			when := panda.GenerationTimeFromEpoch(m.Generated)
 			ns := []string{storage.LevelYear, storage.LevelDay, storage.LevelHour, storage.LevelMin}
-			base = prepareReference(base, ns, m, g, time.Unix(m.Generated, 0))
+			base = prepareReference(base, ns, m, g, time.Unix(when/1000, 0))
 		case storage.LevelACQTime:
 			ns := []string{storage.LevelYear, storage.LevelDay, storage.LevelHour, storage.LevelMin}
 			base = prepareReference(base, ns, m, g, time.Unix(m.Acquired, 0))
