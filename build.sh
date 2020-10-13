@@ -1,5 +1,7 @@
 #! /bin/bash
 
+export GOPATH=$(realpath ../../../../)
+
 # retrieve hadock version using git tag
 VERSION=$(git tag | tail  -n 1)
 
@@ -28,3 +30,4 @@ FLAGS="-X 'github.com/midbel/cli.Version=${VERSION}' -X 'github.com/midbel/cli.B
 
 rm -rf $FILE
 go build -ldflags "${FLAGS}" -o $FILE cmd/hadock/*go
+$FILE version
