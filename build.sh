@@ -26,8 +26,8 @@ fi
 
 
 #FLAGS="-extldflags '-static' -X 'github.com/midbel/cli.Version=${VERSION}' -X 'github.com/midbel/cli.BuildTime=${DATE}' -X 'github.com/midbel/cli.CompileWith=${COMPILER}'"
-FLAGS="-X 'github.com/midbel/cli.Version=${VERSION}' -X 'github.com/midbel/cli.BuildTime=${DATE}' -X 'github.com/midbel/cli.CompileWith=${COMPILER}' -X 'github.com/midbel/cli.CompileHost=${HOST}'"
+LDFLAGS="-extldflags '-static' -w -X 'github.com/midbel/cli.Version=${VERSION}' -X 'github.com/midbel/cli.BuildTime=${DATE}' -X 'github.com/midbel/cli.CompileWith=${COMPILER}' -X 'github.com/midbel/cli.CompileHost=${HOST}'"
 
 rm -rf $FILE
-go build -ldflags "${FLAGS}" -o $FILE cmd/hadock/*go
+CGO_ENABLED=0 go build -x -ldflags "${LDFLAGS}" -o $FILE cmd/hadock/*go
 $FILE version
