@@ -359,5 +359,8 @@ func splitAccept(str string) []string {
       }
     }
   }
+	if begin == 0 {
+		parts = append(parts, str)
+	}
   return parts
 }
