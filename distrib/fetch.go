@@ -15,6 +15,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sort"
 	"time"
 
 	img "github.com/busoc/hadock/internal/image"
@@ -22,6 +23,12 @@ import (
 	"github.com/busoc/panda"
 	"github.com/gorilla/handlers"
 )
+
+func init() {
+	sort.Slice(types, func(i, j int) bool {
+    return types[i].String() < types[j].String()
+  })
+}
 
 var (
 	ErrNotModified    = errors.New("not modified")
@@ -40,6 +47,49 @@ type file struct {
 	when int64
 	sum  []byte
 	buf  *bytes.Buffer
+}
+
+func (f *file) isScience() bool {
+	fcc := make([]byte, 4)
+	binary.BigEndian.PutUint32(fcc, f.fcc)
+	switch {
+	default:
+		return false
+	case bytes.Equal(fcc, panda.MMA):
+	case bytes.Equal(fcc, panda.CORR):
+	case bytes.Equal(fcc, panda.SYNC):
+	case bytes.Equal(fcc, panda.SVS):
+	}
+	return true
+}
+
+func (f *file) isImage() bool {
+	fcc := make([]byte, 4)
+	binary.BigEndian.PutUint32(fcc, f.fcc)
+	switch {
+	default:
+		return false
+	case bytes.Equal(fcc, panda.Y800):
+	case bytes.Equal(fcc, panda.Y16B):
+	case bytes.Equal(fcc, panda.Y16L):
+	case bytes.Equal(fcc, panda.I420):
+	case bytes.Equal(fcc, panda.YUY2):
+	case bytes.Equal(fcc, panda.RGB):
+	case bytes.Equal(fcc, panda.JPEG):
+	case bytes.Equal(fcc, panda.PNG):
+	}
+	return true
+}
+
+func (f *file) AsReader(t string) (io.Reader, error) {
+	switch {
+	case f.isImage():
+		return f.AsImage(t)
+	case f.isScience():
+		return f.AsScience()
+	default:
+		return f.AsRaw()
+	}
 }
 
 func (f *file) AsRaw() (io.Reader, error) {
@@ -102,9 +152,6 @@ func (f *file) AsImage(t string) (io.Reader, error) {
 	if err != nil {
 		return nil, err
 	}
-	// for _, t := range ts {
-	// 	i = t.Transform(i)
-	// }
 	var w bytes.Buffer
 	switch t {
 	case "jpg", "jpeg":
@@ -121,7 +168,6 @@ func (f *file) AsImage(t string) (io.Reader, error) {
 
 func (f file) ModTime() time.Time {
 	return panda.AdjustGenerationTime(f.when)
-	// return time.Unix(f.when, 0)
 }
 
 func Fetch(r, d string) (http.Handler, error) {
@@ -155,6 +201,7 @@ const (
 	MimeJPG   = Mime("image/jpeg")
 	MimePNG   = Mime("image/png")
 	MimeCSV   = Mime("text/csv")
+	MimeALL   = Mime("*/*")
 )
 
 var types = []Mime{
@@ -163,10 +210,12 @@ var types = []Mime{
 	MimePNG,
 	MimeJPG,
 	MimeCSV,
+	MimeALL,
 }
 
 func (f fetcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	if isAcceptable(r.Header.Get("accept"), "application/xml") {
+	e := filepath.Ext(r.URL.Path)
+	if e == ".xml" && isAcceptable(r.Header.Get("accept"), "application/xml") {
 		f, err := os.Open(filepath.Join(f.rawdir, r.URL.Path))
 		if err != nil {
 			w.WriteHeader(http.StatusNotFound)
@@ -177,9 +226,6 @@ func (f fetcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 		return
 	}
-	// if ok := f.copyFile(w, r.URL.Path); ok {
-	// 	return
-	// }
 	var mod time.Time
 	bs, err := readFile(filepath.Join(f.rawdir, r.URL.Path), mod)
 	switch err {
@@ -212,6 +258,8 @@ func (f fetcher) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		rs, err = bs.AsImage(mime.SubType())
 	case MimeCSV:
 		rs, err = bs.AsScience()
+	case MimeALL:
+		rs, err = bs.AsReader("png")
 	}
 	if err != nil {
 		w.WriteHeader(http.StatusInternalServerError)
@@ -275,10 +323,41 @@ func isAcceptable(a string, vs ...string) bool {
 }
 
 func accept(a string, vs []Mime) (Mime, bool) {
-	for _, v := range vs {
-		if ix := strings.Index(a, v.String()); ix >= 0 {
-			return v, true
-		}
-	}
-	return "", false
+  for _, a := range splitAccept(a) {
+    x := sort.Search(len(vs), func(i int) bool {
+      return vs[i].String() >= a
+    })
+    if x < len(vs) && vs[x].String() == a {
+      return vs[x], true
+    }
+  }
+  return "", false
+}
+
+func splitAccept(str string) []string {
+  var (
+    begin int
+    parts []string
+  )
+  for begin < len(str) {
+    x := strings.IndexAny(str[begin:], ",;")
+    if x < 0 {
+       break
+    }
+    switch str[begin+x] {
+    case ',':
+      parts = append(parts, str[begin:begin+x])
+      begin += x+1
+    case ';':
+      parts = append(parts, str[begin:begin+x])
+      begin += x+1
+      x = strings.Index(str[begin:], ",")
+      if x < 0 {
+        begin = len(str)
+      } else {
+        begin += x+1
+      }
+    }
+  }
+  return parts
 }
