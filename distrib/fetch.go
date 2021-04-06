@@ -14,8 +14,8 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
-	"strings"
 	"sort"
+	"strings"
 	"time"
 
 	img "github.com/busoc/hadock/internal/image"
@@ -26,8 +26,8 @@ import (
 
 func init() {
 	sort.Slice(types, func(i, j int) bool {
-    return types[i].String() < types[j].String()
-  })
+		return types[i].String() < types[j].String()
+	})
 }
 
 var (
@@ -323,44 +323,44 @@ func isAcceptable(a string, vs ...string) bool {
 }
 
 func accept(a string, vs []Mime) (Mime, bool) {
-  for _, a := range splitAccept(a) {
-    x := sort.Search(len(vs), func(i int) bool {
-      return vs[i].String() >= a
-    })
-    if x < len(vs) && vs[x].String() == a {
-      return vs[x], true
-    }
-  }
-  return "", false
+	for _, a := range splitAccept(a) {
+		x := sort.Search(len(vs), func(i int) bool {
+			return vs[i].String() >= a
+		})
+		if x < len(vs) && vs[x].String() == a {
+			return vs[x], true
+		}
+	}
+	return "", false
 }
 
 func splitAccept(str string) []string {
-  var (
-    begin int
-    parts []string
-  )
-  for begin < len(str) {
-    x := strings.IndexAny(str[begin:], ",;")
-    if x < 0 {
-       break
-    }
-    switch str[begin+x] {
-    case ',':
-      parts = append(parts, str[begin:begin+x])
-      begin += x+1
-    case ';':
-      parts = append(parts, str[begin:begin+x])
-      begin += x+1
-      x = strings.Index(str[begin:], ",")
-      if x < 0 {
-        begin = len(str)
-      } else {
-        begin += x+1
-      }
-    }
-  }
+	var (
+		begin int
+		parts []string
+	)
+	for begin < len(str) {
+		x := strings.IndexAny(str[begin:], ",;")
+		if x < 0 {
+			break
+		}
+		switch str[begin+x] {
+		case ',':
+			parts = append(parts, str[begin:begin+x])
+			begin += x + 1
+		case ';':
+			parts = append(parts, str[begin:begin+x])
+			begin += x + 1
+			x = strings.Index(str[begin:], ",")
+			if x < 0 {
+				begin = len(str)
+			} else {
+				begin += x + 1
+			}
+		}
+	}
 	if begin == 0 {
 		parts = append(parts, str)
 	}
-  return parts
+	return parts
 }
